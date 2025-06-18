@@ -17,7 +17,7 @@ use crate::app_state::AppState;
 use crate::audio_api::{DeviceChangeEvent, PipeWireManager};
 use crate::backends::wivrn::WiVRnBackend;
 use crate::battery_monitor::BatteryMonitor;
-use crate::logging::log_manager::LogManager;
+use crate::logging::log_session::LogSession;
 use crate::overlay::WlxOverlayManager;
 use crate::steam::launcher::{CompatLauncher, ProcessHandle};
 use axum::http::{header, HeaderValue};
@@ -45,7 +45,7 @@ pub struct GameSession {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let steam_api = SteamInterface::new();
-    let launcher = CompatLauncher::new();
+    let launcher = Arc::new(CompatLauncher::new());
 
     let (ws_tx, _) = broadcast::channel::<String>(100);
     let audio_api = PipeWireManager::new();
@@ -68,15 +68,17 @@ async fn main() -> anyhow::Result<()> {
     let app_state = Arc::new(Mutex::new(AppState {
         audio_api,
         steam_api,
-        launcher,
+        launcher: launcher.clone(),
         active_game_session: None,
         sock_tx: ws_tx,
         wivrn_backend: WiVRnBackend::new(),
         battery_monitor: BatteryMonitor::new(ws_tx_clone),
         overlay_manager: WlxOverlayManager::new(),
-        log_manager: LogManager::new(),
+        log_session: LogSession::new(),
         launch_requests: HashSet::new(),
     }));
+    
+    launcher.set_app_state_async(app_state.clone()).await;
 
     let app = Router::new()
         .route("/api/games", get(routes::games::list_games))

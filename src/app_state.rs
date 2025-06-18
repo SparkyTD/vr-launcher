@@ -1,8 +1,11 @@
 use crate::audio_api::PipeWireManager;
 use crate::backends::wivrn::WiVRnBackend;
 use crate::backends::VRBackend;
+use crate::battery_monitor::BatteryMonitor;
 use crate::command_parser::parse_linux_command;
+use crate::logging::log_session::LogSession;
 use crate::models::Game;
+use crate::overlay::WlxOverlayManager;
 use crate::steam::launch_modifiers::env_vars::EnvironmentVariablesModifier;
 use crate::steam::launch_modifiers::steam::SteamLaunchModifier;
 use crate::steam::launch_modifiers::wivrn::WiVRnLaunchModifier;
@@ -10,26 +13,24 @@ use crate::steam::launch_modifiers::LaunchModifier;
 use crate::steam::launcher::CompatLauncher;
 use crate::steam::steam_interface::{SteamApp, SteamInterface};
 use crate::GameSession;
+use anyhow::ensure;
 use nix::libc::pid_t;
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc};
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use sysinfo::System;
 use tokio::sync::{broadcast, Mutex};
-use crate::battery_monitor::BatteryMonitor;
-use crate::logging::log_manager::LogManager;
-use crate::overlay::WlxOverlayManager;
 
 pub struct AppState {
     pub audio_api: PipeWireManager,
     pub steam_api: SteamInterface,
-    pub launcher: CompatLauncher,
+    pub launcher: Arc<CompatLauncher>,
     pub active_game_session: Option<GameSession>,
     pub sock_tx: broadcast::Sender<String>,
     pub wivrn_backend: WiVRnBackend,
     pub battery_monitor: BatteryMonitor,
     pub overlay_manager: WlxOverlayManager,
-    pub log_manager: LogManager,
+    pub log_session: LogSession,
     pub launch_requests: HashSet<String>,
 }
 
@@ -80,7 +81,7 @@ impl AppState {
             (None, None) => return Err(anyhow::anyhow!("Not enough information to launch the game!")),
         };
 
-        println!("{:?}", steam_app);
+        println!("Launching game: {:#?}", steam_app);
 
         let proton_version = match &game.proton_version {
             Some(version) => self.steam_api.get_proton_versions()?
@@ -95,20 +96,27 @@ impl AppState {
             "wivrn" => Box::new(&mut self.wivrn_backend),
             _ => return Err(anyhow::anyhow!("This VR backend is currently not supported!")),
         };
+        let backend = backend.as_mut();
+        
+        // Check if headset is currently mounted
+        ensure!(
+            backend.is_hmd_mounted()?, 
+            "Please mount the headset before starting any games."
+        );
 
         // Start backend
-        let backend_log_channel = self.log_manager.create_channel("vr_backend")?;
-        let start_info = backend.as_mut().start(backend_log_channel)?;
+        let backend_log_channel = self.log_session.create_channel("vr_backend")?;
+        let start_info = backend.start(backend_log_channel)?;
         self.battery_monitor.set_active_device_serial(start_info.vr_device_serial.clone());
 
         // Start the overlay
         if start_info.was_restarted {
-            // let backend_log_channel = self.log_manager.create_channel("overlay")?;
-            // self.overlay_manager.start(backend_log_channel)?;
+            //let backend_log_channel = self.log_manager.create_channel("overlay")?;
+            //self.overlay_manager.start(backend_log_channel)?;
         }
 
         // Launch the game
-        let game_log_channel = self.log_manager.create_channel("game")?;
+        let game_log_channel = self.log_session.create_channel("game")?;
         let process_handle = self.launcher.launch_app_compat(
             &steam_app,
             &proton_version,
@@ -153,6 +161,10 @@ impl AppState {
             }
         }
 
+        self.game_process_died()
+    }
+
+    pub fn game_process_died(&mut self) -> anyhow::Result<()> {
         _ = self.active_game_session.take();
         _ = self.sock_tx.send("inactive".into());
 

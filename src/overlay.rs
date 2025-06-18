@@ -1,4 +1,4 @@
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
 use crate::logging::log_channel::LogChannel;
 
@@ -21,6 +21,8 @@ impl WlxOverlayManager {
 
         println!("Starting wlx-overlay-s server...");
         let mut overlay_process = Command::new("wlx-overlay-s")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
             .args(&["--openxr", "--show"])
             .spawn()?;
         LogChannel::connect_std(logger, &mut overlay_process);

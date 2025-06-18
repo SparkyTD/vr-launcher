@@ -12,6 +12,7 @@ use ts_rs::TS;
 
 const CHARGE_HISTORY_SAMPLES: usize = 128;
 
+#[allow(dead_code)]
 pub struct BatteryMonitor {
     active_device_serial: Arc<Mutex<Option<String>>>,
     is_active: Arc<AtomicBool>,
@@ -56,7 +57,7 @@ impl BatteryMonitor {
                             percentage_history.remove(0);
                         }
                         percentage_history.push(power_info.level);
-                        
+
                         let battery_info = AndroidBatteryInfo {
                             stats: power_info,
                             history: percentage_history.clone(),

@@ -35,7 +35,6 @@ pub async fn launch_game(
 
     match result.pop() {
         Some(game) => {
-            println!("Launching game: {:?}", game.title);
             match app_state.launch_game(game) {
                 Ok(_) => {
                     Response::builder().status(StatusCode::OK).body(Body::empty()).unwrap()

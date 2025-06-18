@@ -87,6 +87,29 @@ impl VRBackend for WiVRnBackend {
 
         Ok(())
     }
+
+    fn is_hmd_mounted(&self) -> anyhow::Result<bool> {
+        let vr_device = self.find_vr_device()?;
+        let result = Command::new("adb")
+            .args(&[
+                "-s", &vr_device.serial,
+                "shell", "dumpsys", "power"
+            ])
+            .output()?;
+        for line in String::from_utf8(result.stdout)?.lines() {
+            let line = line.trim();
+            if line.is_empty() || !line.contains('=') {
+                continue;
+            }
+
+            let parts = line.split('=').collect::<Vec<_>>();
+            if parts[0] == "mWakefulness" && parts.len() == 2 {
+                return Ok(parts[1] == "Awake");
+            }
+        }
+        
+        Ok(false)
+    }
 }
 
 impl WiVRnBackend {

@@ -1,13 +1,18 @@
+use std::process::Stdio;
 use crate::logging::log_channel::LogChannel;
 use crate::steam::launch_modifiers::LaunchModifier;
 use crate::steam::steam_interface::{ProtonVersion, SteamApp};
 use std::sync::{Arc, Mutex};
 use tokio::process;
 use tokio::sync::broadcast::Sender;
+use tokio::sync::RwLock;
 use tokio::task::JoinHandle;
 use uuid::Uuid;
+use crate::app_state::AppStateWrapper;
 
-pub struct CompatLauncher {}
+pub struct CompatLauncher {
+    app_state: Arc<RwLock<Option<AppStateWrapper>>>,
+}
 
 #[allow(dead_code)]
 #[derive(Debug)]
@@ -35,11 +40,21 @@ impl ProcessHandle {
 
 impl CompatLauncher {
     pub fn new() -> Self {
-        Self {}
+        Self { app_state: Arc::new(RwLock::new(None)) }
+    }
+
+    pub async fn set_app_state_async(&self, app_state: AppStateWrapper) {
+        let mut app_state_lock = self.app_state.write().await;
+        *app_state_lock = Some(app_state);
     }
 
     pub fn launch_app_compat(&self, app: &SteamApp, compat_version: &ProtonVersion, modifiers: Vec<Box<dyn LaunchModifier>>, sock_tx: Sender<String>, logger: Arc<Mutex<LogChannel>>) -> anyhow::Result<ProcessHandle> {
         let mut process = process::Command::new("python3");
+
+        // Process output
+        process.stdout(Stdio::piped());
+        process.stderr(Stdio::piped());
+
         // Basic Proton Setup
         process.env("_", compat_version.executable_path.to_str().unwrap());
         process.arg(compat_version.executable_path.to_str().unwrap());
@@ -59,6 +74,7 @@ impl CompatLauncher {
 
         LogChannel::connect_tokio(logger, &mut child);
 
+        let app_state_clone = self.app_state.clone();
         Ok(ProcessHandle {
             pid,
             process_token,
@@ -67,7 +83,11 @@ impl CompatLauncher {
                 let status = child.wait().await;
                 println!("The child process has exited with status {:?}", status);
                 _ = sock_tx.send("inactive".to_owned());
-            }))
+                let app_state = app_state_clone.write().await;
+                let app_state = app_state.as_ref().unwrap();
+                let mut app_state = app_state.lock().await;
+                _ = app_state.game_process_died();
+            })),
         })
     }
 }

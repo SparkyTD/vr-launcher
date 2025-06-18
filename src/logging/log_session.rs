@@ -3,11 +3,11 @@ use std::sync::{Arc, Mutex};
 use anyhow::ensure;
 use crate::logging::log_channel::LogChannel;
 
-pub struct LogManager {
+pub struct LogSession {
     channels: HashMap<String, Arc<Mutex<LogChannel>>>,
 }
 
-impl LogManager {
+impl LogSession {
     pub fn new() -> Self {
         Self {
             channels: HashMap::new(),

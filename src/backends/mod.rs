@@ -6,6 +6,7 @@ pub mod wivrn;
 pub trait VRBackend {
     fn start(&mut self, backend_log_channel: Arc<Mutex<LogChannel>>) -> anyhow::Result<BackendStartInfo>;
     fn stop(&mut self) -> anyhow::Result<()>;
+    fn is_hmd_mounted(&self) -> anyhow::Result<bool>;
 }
 
 pub struct BackendStartInfo {
