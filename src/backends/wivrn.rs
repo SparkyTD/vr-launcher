@@ -1,0 +1,125 @@
+use crate::backends::{BackendStartInfo, VRBackend};
+use crate::logging::log_channel::LogChannel;
+use rusb::UsbContext;
+use std::process::{Command, Stdio};
+use std::sync::{Arc, Mutex};
+use std::thread;
+
+const ALLOWED_VENDOR_IDS: &[u16] = &[0x2833];
+
+pub struct WiVRnBackend {
+    server_process: Option<std::process::Child>,
+}
+
+impl VRBackend for WiVRnBackend {
+    fn start(&mut self, logger: Arc<Mutex<LogChannel>>) -> anyhow::Result<BackendStartInfo> {
+        let mut needs_new_server_process = false;
+        if self.server_process.is_none() {
+            needs_new_server_process = true;
+        } else if let Ok(Some(_)) = self.server_process.as_mut().unwrap().try_wait() {
+            needs_new_server_process = true;
+        }
+
+        if needs_new_server_process {
+            // Start the WiVRn server
+            println!("Starting WiVRn server...");
+            let mut server_process = Command::new("wivrn-server")
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .spawn()?;
+            LogChannel::connect_std(logger, &mut server_process);
+
+            self.server_process.replace(server_process);
+            thread::sleep(std::time::Duration::from_secs(2));
+            match self.server_process.as_mut().unwrap().try_wait()? {
+                Some(status) => {
+                    return Err(anyhow::anyhow!("WiVRn server exited unexpectedly with status {}", status));
+                }
+                None => {}
+            }
+            println!("Started WiVRn server");
+        }
+
+        // Find the serial of the connected Quest 2 device
+        let android_device = self.find_vr_device()?;
+        println!("Android device found: {:?} ({})", android_device.name, android_device.serial);
+
+        // Forward socket connection
+        println!("Forwarding socket connection...");
+        Command::new("adb")
+            .args(&["-s", &android_device.serial, "reverse", "tcp:9757", "tcp:9757"])
+            .spawn()?
+            .wait()?;
+
+        /*println!("Stopping WiVRn client...");
+        Command::new("adb")
+            .args(&[
+                "-s", &android_device.serial,
+                "shell", "am", "force-stop",
+                "package:org.meumeu.wivrn.github"
+            ])
+            .spawn()?
+            .wait()?;*/
+
+        // Start the WiVRn client
+        println!("Starting WiVRn client...");
+        Command::new("adb")
+            .args(&[
+                "-s", &android_device.serial,
+                "shell", "am", "start",
+                "-a", "android.intent.action.VIEW",
+                "-d", "wivrn+tcp://127.0.0.1:9757",
+                "package:org.meumeu.wivrn.github"
+            ])
+            .spawn()?
+            .wait()?;
+
+        Ok(BackendStartInfo {
+            vr_device_serial: android_device.serial,
+            was_restarted: needs_new_server_process,
+        })
+    }
+
+    fn stop(&mut self) -> anyhow::Result<()> {
+        if let Some(mut server_process) = self.server_process.take() {
+            server_process.kill()?;
+        }
+
+        Ok(())
+    }
+}
+
+impl WiVRnBackend {
+    pub fn new() -> WiVRnBackend {
+        WiVRnBackend {
+            server_process: None,
+        }
+    }
+
+    fn find_vr_device(&self) -> anyhow::Result<AndroidDevice> {
+        let context = rusb::Context::new()?;
+        for device in context.devices()?.iter() {
+            let desc = device.device_descriptor()?;
+            if let Ok(handle) = device.open() {
+                let serial = handle.read_serial_number_string_ascii(&desc)?;
+                let product = handle.read_product_string_ascii(&desc)?;
+                let vid = desc.vendor_id();
+                if !ALLOWED_VENDOR_IDS.contains(&vid) {
+                    continue;
+                }
+
+                return Ok(AndroidDevice {
+                    serial,
+                    name: product,
+                });
+            }
+        }
+
+        Err(anyhow::anyhow!("VR device not found!"))
+    }
+}
+
+struct AndroidDevice {
+    name: String,
+    serial: String,
+}

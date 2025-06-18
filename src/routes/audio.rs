@@ -1,0 +1,45 @@
+use axum::extract::{Path, State};
+use axum::http::StatusCode;
+use axum::Json;
+use axum::response::IntoResponse;
+use crate::app_state::AppStateWrapper;
+
+pub async fn get_audio_endpoints(
+    State(app_state): State<AppStateWrapper>,
+    Path(endpoint): Path<String>
+) -> impl IntoResponse {
+    let app_state = app_state.lock().await;
+    let mut devices = match endpoint.as_str() {
+        "inputs" => app_state.audio_api.get_input_devices(),
+        "outputs" => app_state.audio_api.get_output_devices(),
+        _ => panic!("Bad request"),
+    }.into_iter().collect::<Vec<_>>();
+
+    devices.sort_by_key(|d| d.name.clone());
+
+    Json(devices)
+}
+
+pub async fn set_default_audio_endpoint(
+    State(app_state): State<AppStateWrapper>,
+    Path((endpoint, endpoint_id)): Path<(String, u32)>
+) -> impl IntoResponse {
+    let app_state = app_state.lock().await;
+    let devices = match endpoint.as_str() {
+        "inputs" => app_state.audio_api.get_input_devices(),
+        "outputs" => app_state.audio_api.get_output_devices(),
+        _ => panic!("Bad request"),
+    };
+
+    match devices.iter().find(|d| d.id == endpoint_id) {
+        Some(device) => {
+            match endpoint.as_str() {
+                "inputs" => app_state.audio_api.set_default_input_device(device),
+                "outputs" => app_state.audio_api.set_default_output_device(device),
+                _ => panic!("Bad request"),
+            }
+            StatusCode::NO_CONTENT.into_response()
+        }
+        None => StatusCode::NOT_FOUND.into_response(),
+    }
+}
