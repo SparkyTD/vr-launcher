@@ -3,7 +3,7 @@ import {For, Resource} from "solid-js";
 
 export type GamesGridProps = {
     games: Resource<GameInfo[]>;
-    gameClicked?: (game: GameInfo) => void;
+    gameClicked?: (game: GameInfo) => Promise<void>;
 }
 
 export default function GamesGrid({games, gameClicked}: GamesGridProps) {

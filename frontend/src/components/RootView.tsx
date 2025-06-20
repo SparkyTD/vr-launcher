@@ -16,12 +16,16 @@ export default function RootView() {
     const [selectedGame, setSelectedGame] = createSignal<GameInfo | null>(null);
     const [activeSession, setActiveSession] = createSignal<GameSession | null>(null);
     const [errorModelContent, setErrorModelContent] = createSignal<ErrorModalContents | null>(null);
+    const [isGameLoading, setIsGameLoading] = createSignal<boolean>(false);
 
     const handleGameClicked = async (game: GameInfo) => {
-        let idemToken = uuidv4();
-        let result = await fetch(Api.StartGame(game.id) + `?idem_token=${idemToken}`, {
-            method: "POST",
-        });
+        if (isGameLoading()) {
+            return;
+        }
+
+        setIsGameLoading(true);
+        let result = await Api.StartGameAsync(game, uuidv4());
+        setIsGameLoading(false);
 
         if (result.status >= 500) {
             setErrorModelContent({
@@ -30,49 +34,30 @@ export default function RootView() {
             });
         }
     };
-
     const handleBackToGrid = () => {
         setCurrentState('grid');
         setSelectedGame(null);
         setActiveSession(null);
     };
-
-    const [games] = createResource(async () => {
-        const response = (await fetch(Api.ListGames)
-            .then((res) => res.json()))
-            .map((game: any) => {
-                return {
-                    id: game.id,
-                    title: game.title,
-                    cover: Api.GetGameCover(game.id),
-                    playtimeSeconds: game.playtime_sec,
-                } as GameInfo;
-            });
-
-        return response as GameInfo[];
-    });
+    const [games] = createResource(Api.ListGamesAsync);
 
     createResource(games, async (gamesList) => {
         if (!gamesList) return null;
 
-        let result = (await fetch(Api.GetActiveGame)
-            .then(res => res.json())
-            .then(json => json as GameSession));
+        let activeSession = await Api.GetActiveSessionAsync();
 
-        console.log(`Active game: ${result.game.title}`);
-
-        if (!!result.game.id) {
-            let game_info = gamesList.find((g) => g.id === result.game.id);
+        if (!!activeSession.game.id) {
+            let game_info = gamesList.find((g) => g.id === activeSession.game.id);
             if (game_info) {
                 setCurrentState('playing');
                 setSelectedGame(game_info);
-                setActiveSession(result);
+                setActiveSession(activeSession);
             }
         } else {
             console.warn("Active game not found!")
         }
 
-        return result;
+        return activeSession;
     });
 
     useWebSocket(data => {

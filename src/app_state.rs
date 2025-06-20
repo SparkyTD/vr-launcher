@@ -16,6 +16,7 @@ use crate::GameSession;
 use anyhow::ensure;
 use nix::libc::pid_t;
 use std::collections::{HashMap, HashSet};
+use std::env;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use sysinfo::System;
@@ -30,7 +31,7 @@ pub struct AppState {
     pub wivrn_backend: WiVRnBackend,
     pub battery_monitor: BatteryMonitor,
     pub overlay_manager: WlxOverlayManager,
-    pub log_session: LogSession,
+    pub log_session: Option<LogSession>,
     pub launch_requests: HashSet<String>,
 }
 
@@ -81,8 +82,6 @@ impl AppState {
             (None, None) => return Err(anyhow::anyhow!("Not enough information to launch the game!")),
         };
 
-        println!("Launching game: {:#?}", steam_app);
-
         let proton_version = match &game.proton_version {
             Some(version) => self.steam_api.get_proton_versions()?
                 .into_iter()
@@ -90,6 +89,11 @@ impl AppState {
                 .ok_or(anyhow::anyhow!("Missing proton version: {:?}!", version))?,
             None => return Err(anyhow::anyhow!("Running games without proton is currently not supported!")),
         };
+
+        println!("Launching game: {:#?}", steam_app);
+        
+        // Create logging session
+        self.start_log_session()?;
 
         // Set up backend
         let mut backend: Box<&mut dyn VRBackend> = match game.vr_backend.as_str() {
@@ -105,18 +109,21 @@ impl AppState {
         );
 
         // Start backend
-        let backend_log_channel = self.log_session.create_channel("vr_backend")?;
+        let backend_log_channel = self.log_session.as_mut().unwrap()
+            .create_channel("vr_backend")?;
         let start_info = backend.start(backend_log_channel)?;
         self.battery_monitor.set_active_device_serial(start_info.vr_device_serial.clone());
 
         // Start the overlay
         if start_info.was_restarted {
-            //let backend_log_channel = self.log_manager.create_channel("overlay")?;
+            //let backend_log_channel = self.log_session.as_mut().unwrap()
+            //             .create_channel("overlay")?;
             //self.overlay_manager.start(backend_log_channel)?;
         }
 
         // Launch the game
-        let game_log_channel = self.log_session.create_channel("game")?;
+        let game_log_channel = self.log_session.as_mut().unwrap()
+            .create_channel("game")?;
         let process_handle = self.launcher.launch_app_compat(
             &steam_app,
             &proton_version,
@@ -168,6 +175,20 @@ impl AppState {
         _ = self.active_game_session.take();
         _ = self.sock_tx.send("inactive".into());
 
+        Ok(())
+    }
+    
+    pub fn start_log_session(&mut self) -> anyhow::Result<()> {
+        if let Some(mut log_session) = self.log_session.take() {
+            log_session.shutdown()?;
+        }
+
+        let logs_dir = env::current_dir()?
+            .join("logs");
+        let mut session = LogSession::new(logs_dir);
+        session.archive_old_files()?;
+        self.log_session.replace(session);
+        
         Ok(())
     }
 }

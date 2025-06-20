@@ -46,11 +46,7 @@ export default function NowPlaying({game, session, onBack}: NowPlayingProps) {
         return `${mins}:${secs.toString().padStart(2, '0')}`;
     };
 
-    const handleKillGame = async () => {
-        await fetch(Api.KillActiveGame, {
-            method: "POST",
-        });
-    };
+    const handleKillGame = Api.KillActiveGameAsync;
 
     return (
         <div class="fixed inset-0 z-10">

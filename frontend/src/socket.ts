@@ -1,4 +1,3 @@
-// websocket-store.ts
 import { createSignal, createEffect, onCleanup } from 'solid-js';
 import {Api} from "./api.ts";
 
@@ -10,7 +9,6 @@ interface WebSocketStore {
     getLastMessage: () => any;
 }
 
-// Create a singleton WebSocket store
 function createWebSocketStore(url: string): WebSocketStore {
     const [isConnected, setIsConnected] = createSignal(false);
     const [lastMessage, setLastMessage] = createSignal<any>(null);
@@ -39,7 +37,6 @@ function createWebSocketStore(url: string): WebSocketStore {
 
             setLastMessage(data);
 
-            // Notify all subscribers
             subscribers.forEach(handler => {
                 try {
                     handler(data);
@@ -83,16 +80,13 @@ function createWebSocketStore(url: string): WebSocketStore {
     const subscribe = <T = any>(handler: MessageHandler<T>) => {
         subscribers.add(handler);
 
-        // Connect when first subscriber is added
         if (subscribers.size === 1) {
             connect();
         }
 
-        // Return unsubscribe function
         return () => {
             subscribers.delete(handler);
 
-            // Disconnect when no more subscribers
             if (subscribers.size === 0) {
                 disconnect();
             }
@@ -106,10 +100,8 @@ function createWebSocketStore(url: string): WebSocketStore {
     };
 }
 
-// Create the singleton instance
-export const wsStore = createWebSocketStore(Api.StateSock);
+export const wsStore = createWebSocketStore(Api.GetSockUrl());
 
-// Helper hook for components
 export function useWebSocket<T = any>(handler: MessageHandler<T>) {
     let unsubscribe: (() => void) | null = null;
 

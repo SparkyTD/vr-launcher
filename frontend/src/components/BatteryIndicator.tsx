@@ -12,8 +12,7 @@ export default function BatteryIndicator() {
     const [batteryInfo, setBatteryInfo] = createSignal<AndroidBatteryInfo | null>(null);
 
     createResource(async () => {
-        setBatteryInfo((await fetch(Api.DeviceGetBatteryInfo)
-            .then((res) => res.json())) as AndroidBatteryInfo);
+        setBatteryInfo(await Api.GetDeviceBatteryInfo());
     });
 
     useWebSocket(data => {

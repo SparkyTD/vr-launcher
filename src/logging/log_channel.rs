@@ -1,14 +1,16 @@
 use chrono::{DateTime, Utc};
 use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
-use std::time::SystemTime;
-use std::{env, fs, thread};
+use std::path::PathBuf;
 use std::process::Child;
 use std::sync::{Arc, Mutex};
+use std::time::SystemTime;
+use std::{fs, thread};
 use tokio::io::AsyncBufReadExt;
 
 pub struct LogChannel {
-    name: String,
+    pub(crate) name: String,
+    pub(crate) file_path: PathBuf,
     log_file: File,
     stdout_logger_handle: Option<thread::JoinHandle<()>>,
     stderr_logger_handle: Option<thread::JoinHandle<()>>,
@@ -17,13 +19,9 @@ pub struct LogChannel {
 }
 
 impl LogChannel {
-    pub fn new(name: &str) -> anyhow::Result<LogChannel> {
-        let time = SystemTime::now();
+    pub fn new(name: &str, time: SystemTime, logs_dir: &PathBuf) -> anyhow::Result<LogChannel> {
         let datetime: DateTime<Utc> = time.into();
         let filename = format!("{}_{}.log", datetime.format("%Y-%m-%d_%H:%M:%S"), name);
-
-        let logs_dir = env::current_dir()?
-            .join("logs");
 
         fs::create_dir_all(&logs_dir)?;
         let log_file_path = logs_dir.join(filename);
@@ -31,6 +29,7 @@ impl LogChannel {
         Ok(Self {
             name: name.into(),
             log_file: File::create(&log_file_path)?,
+            file_path: log_file_path,
             stdout_logger_handle: None,
             stderr_logger_handle: None,
             stdout_logger_handle_tokio: None,
@@ -113,7 +112,7 @@ impl LogChannel {
         _ = self.stderr_logger_handle.take();
         _ = self.stdout_logger_handle_tokio.take();
         _ = self.stderr_logger_handle_tokio.take();
-        
+
         Ok(())
     }
 }

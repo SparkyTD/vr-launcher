@@ -11,19 +11,18 @@ mod battery_monitor;
 mod overlay;
 mod logging;
 
-use std::collections::HashSet;
 use self::models::*;
 use crate::app_state::AppState;
 use crate::audio_api::{DeviceChangeEvent, PipeWireManager};
 use crate::backends::wivrn::WiVRnBackend;
 use crate::battery_monitor::BatteryMonitor;
-use crate::logging::log_session::LogSession;
 use crate::overlay::WlxOverlayManager;
 use crate::steam::launcher::{CompatLauncher, ProcessHandle};
 use axum::http::{header, HeaderValue};
 use axum::routing::{get, post};
 use axum::Router;
 use serde::Serialize;
+use std::collections::HashSet;
 use std::sync::Arc;
 use steam::steam_interface::SteamInterface;
 use tokio::sync::{broadcast, Mutex};
@@ -74,9 +73,11 @@ async fn main() -> anyhow::Result<()> {
         wivrn_backend: WiVRnBackend::new(),
         battery_monitor: BatteryMonitor::new(ws_tx_clone),
         overlay_manager: WlxOverlayManager::new(),
-        log_session: LogSession::new(),
+        log_session: None,
         launch_requests: HashSet::new(),
     }));
+    
+    
     
     launcher.set_app_state_async(app_state.clone()).await;
 

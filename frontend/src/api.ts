@@ -1,39 +1,73 @@
-export const Api = {
-    ListGames: "http://192.168.1.108:3001/api/games",
-    GetGame: (id: string) => `${Api.ListGames}/${id}`,
-    GetGameCover: (id: string) => `${Api.ListGames}/${id}/cover`,
-    StartGame: (id: string) => `${Api.ListGames}/${id}/launch`,
-    GetActiveGame: "http://192.168.1.108:3001/api/games/active",
-    KillActiveGame: "http://192.168.1.108:3001/api/games/active/kill",
-    ListAudioInputs: "http://192.168.1.108:3001/api/audio/inputs",
-    ListAudioOutputs: "http://192.168.1.108:3001/api/audio/outputs",
-    SetDefaultAudioInput: (id: number) => `${Api.ListAudioInputs}/${id}/default`,
-    SetDefaultAudioOutput: (id: number) => `${Api.ListAudioOutputs}/${id}/default`,
-    StateSock: "ws://192.168.1.108:3001/api/sock",
-    DeviceGetBatteryInfo: "http://192.168.1.108:3001/api/device/battery",
+import {GameInfo} from "./components/GameCard.tsx";
+import {AndroidBatteryInfo, GameSession} from "./rust_bindings.ts";
+import {AudioDevice} from "./components/AudioSelector.tsx";
 
-    DebugGetAgent: "http://192.168.1.108:3001/api/debug/agent"
-}
+export class Api {
+    public static async ListGamesAsync(): Promise<GameInfo[]> {
+        return (await fetch(Api.GetApiUrl("/games"))
+            .then((res) => res.json()))
+            .map((game: any) => {
+                return {
+                    id: game.id,
+                    title: game.title,
+                    cover: Api.GetApiUrl(`/games/${game.id}/cover`),
+                    playtimeSeconds: game.playtime_sec,
+                } as GameInfo;
+            });
+    }
 
-const Api2 = {
-    BaseUrl: (proto: string) => `${proto}://192.168.1.108:3001/api`,
+    public static async StartGameAsync(game: GameInfo, token: string): Promise<Response> {
+        return await fetch(Api.GetApiUrl(`/games/${game.id}/launch`) + `?idem_token=${token}`, {
+            method: "POST",
+        });
+    }
 
-    // Game APIs
-    ListGames: () => `${Api2.BaseUrl("http")}/games`,
-    GetGameCover: (id: string) => `${Api2.ListGames()}/${id}/cover`,
-    StartGame: (id: string) => `${Api2.ListGames()}/${id}/launch`,
-    GetActiveGame: () => `${Api2.ListGames()}/active`,
-    KillActiveGame: () => `${Api2.ListGames()}/active/kill`,
+    public static async GetActiveSessionAsync(): Promise<GameSession> {
+        return await fetch(Api.GetApiUrl("/games/active"))
+            .then(res => res.json())
+            .then(json => json as GameSession);
+    }
 
-    // Audio APIs
-    ListAudioInputs: () => `${Api2.BaseUrl("http")}/audio/inputs`,
-    ListAudioOutputs: () => `${Api2.BaseUrl("http")}/audio/outputs`,
-    SetDefaultAudioInput: (id: number) => `${Api2.ListAudioInputs}/${id}/default`,
-    SetDefaultAudioOutput: (id: number) => `${Api2.ListAudioOutputs}/${id}/default`,
+    public static async KillActiveGameAsync(): Promise<void> {
+        await fetch(Api.GetApiUrl(`/games/active/kill`))
+    }
 
-    // Socket endpoint
-    StateSock: () => `${Api2.BaseUrl("ws")}/sock`,
+    public static async ListAudioInputsAsync(): Promise<AudioDevice[]> {
+        return await fetch(Api.GetApiUrl("/audio/inputs"))
+            .then(res => res.json())
+            .then(j => j as AudioDevice[]);
+    }
 
-    // Device status
-    DeviceGetBatteryInfo: () => `${Api2.BaseUrl("http")}/device/battery`,
+    public static async ListAudioOutputsAsync(): Promise<AudioDevice[]> {
+        return await fetch(Api.GetApiUrl("/audio/outputs"))
+            .then(res => res.json())
+            .then(j => j as AudioDevice[]);
+    }
+
+    public static async SetDefaultAudioInputAsync(device: AudioDevice): Promise<void> {
+        await fetch(Api.GetApiUrl(`/audio/inputs/${device.id}/default`), {
+            method: "POST",
+        });
+    }
+
+    public static async SetDefaultAudioOutputAsync(device: AudioDevice): Promise<void> {
+        await fetch(Api.GetApiUrl(`/audio/outputs/${device.id}/default`), {
+            method: "POST",
+        });
+    }
+
+    public static async GetDeviceBatteryInfo(): Promise<AndroidBatteryInfo> {
+        return await fetch(Api.GetApiUrl("/device/battery"))
+            .then(res => res.json())
+            .then(res => res as AndroidBatteryInfo);
+    }
+
+    public static GetSockUrl(): string {
+        return Api.GetApiUrl("/sock", "ws");
+    }
+
+    static GetApiUrl(path: string, proto: string = "http"): string {
+        path = path.replace(/^\//g, '');
+        return `${proto}://192.168.1.108:3001/api/${path}`;
+    }
 }

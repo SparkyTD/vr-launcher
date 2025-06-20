@@ -9,12 +9,8 @@ export default function AudioSelector() {
     const [isOpen, setIsOpen] = createSignal(false)
 
     const [defaultDevices, {refetch}] = createResource(async () => {
-        let inputs = await fetch(Api.ListAudioInputs)
-            .then(res => res.json())
-            .then(j => j as AudioDevice[]);
-        let outputs = await fetch(Api.ListAudioOutputs)
-            .then(res => res.json())
-            .then(j => j as AudioDevice[]);
+        let inputs = await Api.ListAudioInputsAsync();
+        let outputs = await Api.ListAudioOutputsAsync();
 
         return {
             input: inputs.find(i => i.is_default),
@@ -62,7 +58,7 @@ type AudioSelectorProps = {
     forceRefetch: () => void,
 }
 
-type AudioDevice = {
+export type AudioDevice = {
     id: number,
     name: string,
     description: string,
@@ -73,9 +69,9 @@ function EndpointSelector({name, type, forceRefetch}: AudioSelectorProps) {
     const [isLoading, setIsLoading] = createSignal(false);
 
     const [devices, {refetch}] = createResource(async () => {
-        return await fetch(type == 'input' ? Api.ListAudioInputs : Api.ListAudioOutputs)
-            .then(res => res.json())
-            .then(j => j as AudioDevice[]);
+        return type == 'input'
+            ? await Api.ListAudioInputsAsync()
+            : await Api.ListAudioOutputsAsync();
     });
 
     return <div class="relative">
@@ -90,11 +86,9 @@ function EndpointSelector({name, type, forceRefetch}: AudioSelectorProps) {
                             onClick={async () => {
                                 setIsLoading(true);
                                 try {
-                                    await fetch(type == 'input'
-                                        ? Api.SetDefaultAudioInput(device.id)
-                                        : Api.SetDefaultAudioOutput(device.id), {
-                                        method: "POST",
-                                    });
+                                    type == 'input'
+                                        ? await Api.SetDefaultAudioInputAsync(device)
+                                        : await Api.SetDefaultAudioOutputAsync(device);
                                     forceRefetch();
                                     await refetch();
                                 } catch (error) {
