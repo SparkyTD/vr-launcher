@@ -1,6 +1,6 @@
-import {GameInfo} from "./GameCard.tsx";
+import {GameInfo} from "../components/GameCard.tsx";
 import {createSignal, onCleanup} from "solid-js";
-import {ClockIcon, XIcon} from "lucide-solid";
+import {ClockIcon, RefreshCwIcon, XIcon} from "lucide-solid";
 import {Api} from "../api.ts";
 import {GameSession} from "../rust_bindings.ts";
 import {useWebSocket} from "../socket.ts";
@@ -87,8 +87,14 @@ export default function NowPlaying({game, session, onBack}: NowPlayingProps) {
                         <button
                             onclick={handleKillGame}
                             class="backdrop-blur-md bg-red-600/20 rounded-xl p-4 pe-6 border border-red-600/10 flex items-center gap-3 cursor-pointer hover:bg-red-400/20 transition-all">
-                            <XIcon/>
-                            <span>Close Game</span>
+                            <XIcon width={24} height={24} />
+                            <span>Close game</span>
+                        </button>
+                        <button
+                            onclick={Api.ReconnectBackendAsync}
+                            class="backdrop-blur-md bg-gray-500/20 rounded-xl p-4 pe-6 border border-gray-500/10 flex items-center gap-3 cursor-pointer hover:bg-gray-400/20 transition-all">
+                            <RefreshCwIcon width={20} height={20}/>
+                            <span>Reconnect backend</span>
                         </button>
                     </div>
                 </div>

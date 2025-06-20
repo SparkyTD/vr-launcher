@@ -32,6 +32,12 @@ export class Api {
         await fetch(Api.GetApiUrl(`/games/active/kill`))
     }
 
+    public static async ReconnectBackendAsync(): Promise<void> {
+        await fetch(Api.GetApiUrl(`/games/reload_backend`), {
+            method: "POST",
+        })
+    }
+
     public static async ListAudioInputsAsync(): Promise<AudioDevice[]> {
         return await fetch(Api.GetApiUrl("/audio/inputs"))
             .then(res => res.json())

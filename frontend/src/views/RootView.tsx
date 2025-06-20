@@ -1,12 +1,12 @@
-import Header from "./Header.tsx";
+import Header from "../components/Header.tsx";
 import GamesGrid from "./GamesGrid.tsx";
-import {GameInfo} from "./GameCard.tsx";
+import {GameInfo} from "../components/GameCard.tsx";
 import {createResource, createSignal, Show} from "solid-js";
 import NowPlaying from "./NowPlaying.tsx";
 import {Api} from "../api.ts";
 import {GameSession} from "../rust_bindings.ts";
 import {useWebSocket} from "../socket.ts";
-import Modal, {ErrorModalContents} from "./Modal.tsx";
+import Modal, {ErrorModalContents} from "../components/Modal.tsx";
 import {v4 as uuidv4} from 'uuid';
 
 type AppState = 'grid' | 'playing';

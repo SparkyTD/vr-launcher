@@ -27,6 +27,7 @@ use std::sync::Arc;
 use steam::steam_interface::SteamInterface;
 use tokio::sync::{broadcast, Mutex};
 use ts_rs::TS;
+use crate::backends::BackendType;
 
 include!(concat!(env!("OUT_DIR"), "/frontend_assets.rs"));
 
@@ -70,6 +71,7 @@ async fn main() -> anyhow::Result<()> {
         launcher: launcher.clone(),
         active_game_session: None,
         sock_tx: ws_tx,
+        backend_type: BackendType::Unknown,
         wivrn_backend: WiVRnBackend::new(),
         battery_monitor: BatteryMonitor::new(ws_tx_clone),
         overlay_manager: WlxOverlayManager::new(),
@@ -88,6 +90,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/games/{game_id}/launch", post(routes::game_state::launch_game))
         .route("/api/games/active", get(routes::game_state::get_active_game))
         .route("/api/games/active/kill", post(routes::game_state::kill_active_game))
+        .route("/api/games/reload_backend", post(routes::game_state::reload_backend))
         .route("/api/audio/{endpoint}", get(routes::audio::get_audio_endpoints))
         .route("/api/audio/{endpoint}/{endpoint_id}/default", post(routes::audio::set_default_audio_endpoint))
         .route("/api/sock", get(routes::sock::sock_state_handler))

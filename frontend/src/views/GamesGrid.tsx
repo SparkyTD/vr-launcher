@@ -1,4 +1,4 @@
-import GameCard, {GameInfo} from "./GameCard.tsx";
+import GameCard, {GameInfo} from "../components/GameCard.tsx";
 import {For, Resource} from "solid-js";
 
 export type GamesGridProps = {

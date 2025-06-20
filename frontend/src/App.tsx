@@ -1,5 +1,5 @@
 import './App.css';
-import RootView from "./components/RootView.tsx";
+import RootView from "./views/RootView.tsx";
 
 const App = () => {
     return (

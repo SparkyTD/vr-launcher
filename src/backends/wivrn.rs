@@ -9,6 +9,7 @@ const ALLOWED_VENDOR_IDS: &[u16] = &[0x2833];
 
 pub struct WiVRnBackend {
     server_process: Option<std::process::Child>,
+    pub logger: Option<Arc<Mutex<LogChannel>>>,
 }
 
 impl VRBackend for WiVRnBackend {
@@ -27,6 +28,8 @@ impl VRBackend for WiVRnBackend {
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
                 .spawn()?;
+            
+            self.logger.replace(logger.clone());
             LogChannel::connect_std(logger, &mut server_process);
 
             self.server_process.replace(server_process);
@@ -42,6 +45,21 @@ impl VRBackend for WiVRnBackend {
 
         // Find the serial of the connected Quest 2 device
         let android_device = self.find_vr_device()?;
+        self.reconnect()?;
+
+        Ok(BackendStartInfo {
+            vr_device_serial: android_device.serial,
+            was_restarted: needs_new_server_process,
+        })
+    }
+    
+    fn reconnect(&mut self) -> anyhow::Result<()> {
+        if self.server_process.is_none() {
+            return Ok(());
+        }
+        
+        // Find the serial of the connected Quest 2 device
+        let android_device = self.find_vr_device()?;
         println!("Android device found: {:?} ({})", android_device.name, android_device.serial);
 
         // Forward socket connection
@@ -50,16 +68,6 @@ impl VRBackend for WiVRnBackend {
             .args(&["-s", &android_device.serial, "reverse", "tcp:9757", "tcp:9757"])
             .spawn()?
             .wait()?;
-
-        /*println!("Stopping WiVRn client...");
-        Command::new("adb")
-            .args(&[
-                "-s", &android_device.serial,
-                "shell", "am", "force-stop",
-                "package:org.meumeu.wivrn.github"
-            ])
-            .spawn()?
-            .wait()?;*/
 
         // Start the WiVRn client
         println!("Starting WiVRn client...");
@@ -73,11 +81,8 @@ impl VRBackend for WiVRnBackend {
             ])
             .spawn()?
             .wait()?;
-
-        Ok(BackendStartInfo {
-            vr_device_serial: android_device.serial,
-            was_restarted: needs_new_server_process,
-        })
+        
+        Ok(())
     }
 
     fn stop(&mut self) -> anyhow::Result<()> {
@@ -116,6 +121,7 @@ impl WiVRnBackend {
     pub fn new() -> WiVRnBackend {
         WiVRnBackend {
             server_process: None,
+            logger: None,
         }
     }
 

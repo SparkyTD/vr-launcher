@@ -160,7 +160,7 @@ fn generate_assets_module(dist_dir: &Path, out_dir: &str) {
 
     // Write the static HashMap
     writeln!(file, "pub static FRONTEND_ASSETS: Lazy<HashMap<String, BundledContent>> = Lazy::new(|| {{").unwrap();
-    writeln!(file, "    let mut assets = HashMap::new();").unwrap();
+    writeln!(file, "    let assets = HashMap::new();").unwrap();
 
     // Write each asset
     for (path, (file_path, mime_type)) in &assets {

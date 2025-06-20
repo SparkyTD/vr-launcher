@@ -1,6 +1,6 @@
 use crate::audio_api::PipeWireManager;
 use crate::backends::wivrn::WiVRnBackend;
-use crate::backends::VRBackend;
+use crate::backends::{BackendType, VRBackend};
 use crate::battery_monitor::BatteryMonitor;
 use crate::command_parser::parse_linux_command;
 use crate::logging::log_session::LogSession;
@@ -28,6 +28,7 @@ pub struct AppState {
     pub launcher: Arc<CompatLauncher>,
     pub active_game_session: Option<GameSession>,
     pub sock_tx: broadcast::Sender<String>,
+    pub backend_type: BackendType,
     pub wivrn_backend: WiVRnBackend,
     pub battery_monitor: BatteryMonitor,
     pub overlay_manager: WlxOverlayManager,
@@ -91,17 +92,20 @@ impl AppState {
         };
 
         println!("Launching game: {:#?}", steam_app);
-        
+
         // Create logging session
         self.start_log_session()?;
 
         // Set up backend
         let mut backend: Box<&mut dyn VRBackend> = match game.vr_backend.as_str() {
-            "wivrn" => Box::new(&mut self.wivrn_backend),
+            "wivrn" => {
+                self.backend_type = BackendType::WiVRn;
+                Box::new(&mut self.wivrn_backend)
+            }
             _ => return Err(anyhow::anyhow!("This VR backend is currently not supported!")),
         };
         let backend = backend.as_mut();
-        
+
         // Check if headset is currently mounted
         ensure!(
             backend.is_hmd_mounted()?, 
@@ -177,7 +181,7 @@ impl AppState {
 
         Ok(())
     }
-    
+
     pub fn start_log_session(&mut self) -> anyhow::Result<()> {
         if let Some(mut log_session) = self.log_session.take() {
             log_session.shutdown()?;
@@ -188,7 +192,7 @@ impl AppState {
         let mut session = LogSession::new(logs_dir);
         session.archive_old_files()?;
         self.log_session.replace(session);
-        
+
         Ok(())
     }
 }
