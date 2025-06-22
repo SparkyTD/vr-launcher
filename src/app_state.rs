@@ -30,8 +30,8 @@ pub struct AppState {
     pub active_game_session: Option<GameSession>,
     pub sock_tx: broadcast::Sender<String>,
     pub device_manager: Arc<Mutex<DeviceManager>>,
+    pub active_backend: Option<Box<dyn VRBackend + Send>>,
     pub backend_type: BackendType,
-    pub wivrn_backend: WiVRnBackend,
     pub battery_monitor: BatteryMonitor,
     pub overlay_manager: WlxOverlayManager,
     pub log_session: Option<LogSession>,
@@ -41,7 +41,7 @@ pub struct AppState {
 pub type AppStateWrapper = Arc<Mutex<AppState>>;
 
 impl AppState {
-    pub fn launch_game(&mut self, game: Game) -> anyhow::Result<()> {
+    pub async fn launch_game_async(&mut self, game: Game) -> anyhow::Result<()> {
         if let Some(_) = &self.active_game_session {
             return Err(anyhow::anyhow!("Another active game session is already running"));
         }
@@ -99,29 +99,38 @@ impl AppState {
         self.start_log_session()?;
 
         // Set up backend
-        let mut backend: Box<&mut dyn VRBackend> = match game.vr_backend.as_str() {
+        let mut backend: Box<dyn VRBackend + Send> = match game.vr_backend.as_str() {
             "wivrn" => {
                 self.backend_type = BackendType::WiVRn;
-                Box::new(&mut self.wivrn_backend)
+                Box::new(WiVRnBackend::new())
             }
             _ => return Err(anyhow::anyhow!("This VR backend is currently not supported!")),
         };
-        let backend = backend.as_mut();
 
         // Check if headset is currently mounted
-        ensure!(
-            backend.is_hmd_mounted()?, 
-            "Please mount the headset before starting any games."
-        );
+        {
+            let device_manager = self.device_manager.lock().await;
+            let active_device = device_manager.get_current_device()?
+                .ok_or_else(|| anyhow::anyhow!("No active device found"))?;
+
+            ensure!(
+                active_device.is_hmd_mounted()?,
+                "Please mount the headset before starting any games."
+            );
+            drop(device_manager);
+        }
 
         // Start backend
         let backend_log_channel = self.log_session.as_mut().unwrap()
             .create_channel("vr_backend")?;
-        let start_info = backend.start(backend_log_channel)?;
+        let device_manager = self.device_manager.clone();
+        let start_info = backend.start_async(backend_log_channel, device_manager).await?;
         self.battery_monitor.set_active_device_serial(start_info.vr_device_serial.clone());
         if let Some(device_ip) = start_info.vr_device_ip {
             self.battery_monitor.set_active_device_ip(device_ip);
         }
+
+        self.active_backend.replace(backend);
 
         // TODO: Start the overlay
         if start_info.was_restarted {
@@ -183,6 +192,7 @@ impl AppState {
     pub fn game_process_died(&mut self) -> anyhow::Result<()> {
         _ = self.active_game_session.take();
         _ = self.sock_tx.send("inactive".into());
+        self.overlay_manager.stop()?;
 
         Ok(())
     }

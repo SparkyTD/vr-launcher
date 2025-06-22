@@ -15,7 +15,6 @@ mod adb;
 use self::models::*;
 use crate::app_state::AppState;
 use crate::audio_api::{DeviceChangeEvent, PipeWireManager};
-use crate::backends::wivrn::WiVRnBackend;
 use crate::backends::BackendType;
 use crate::battery_monitor::BatteryMonitor;
 use crate::overlay::WlxOverlayManager;
@@ -32,6 +31,9 @@ use ts_rs::TS;
 use crate::adb::device_manager::DeviceManager;
 
 include!(concat!(env!("OUT_DIR"), "/frontend_assets.rs"));
+
+pub type StdMutex<T> = std::sync::Mutex<T>;
+pub type TokioMutex<T> = tokio::sync::Mutex<T>;
 
 #[derive(Debug, Serialize, TS)]
 #[ts(export, export_to = "rust_bindings.ts")]
@@ -74,9 +76,9 @@ async fn main() -> anyhow::Result<()> {
         launcher: launcher.clone(),
         active_game_session: None,
         sock_tx: ws_tx,
+        active_backend: None,
         device_manager: device_manager.clone(),
         backend_type: BackendType::Unknown,
-        wivrn_backend: WiVRnBackend::new(),
         battery_monitor: BatteryMonitor::new(ws_tx_clone, device_manager.clone()),
         overlay_manager: WlxOverlayManager::new(),
         log_session: None,
@@ -90,7 +92,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/games", get(routes::games::list_games))
         .route("/api/games/{game_id}", get(routes::games::get_game_info))
         .route("/api/games/{game_id}/cover", get(routes::games::get_game_cover))
-        .route("/api/games/{game_id}/launch", post(routes::game_state::launch_game))
+        .route("/api/games/{game_id}/launch", post(routes::game_state::launch_game_async))
         .route("/api/games/active", get(routes::game_state::get_active_game))
         .route("/api/games/active/kill", post(routes::game_state::kill_active_game))
         .route("/api/games/reload_backend", post(routes::game_state::reload_backend))

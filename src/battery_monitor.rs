@@ -11,6 +11,7 @@ use tokio::task::JoinHandle;
 use ts_rs::TS;
 
 const CHARGE_HISTORY_SAMPLES: usize = 128;
+const BATTERY_SCAN_INTERVAL_SEC: u64 = 30;
 
 #[allow(dead_code)]
 pub struct BatteryMonitor {
@@ -42,7 +43,7 @@ impl BatteryMonitor {
                     if !is_active.load(Ordering::SeqCst) {
                         break;
                     }
-                    
+
                     let device_manager = device_manager.lock().await;
                     if let Ok(Some(current_device)) = device_manager.get_current_device() {
                         let battery_output = current_device
@@ -67,8 +68,9 @@ impl BatteryMonitor {
 
                         *current_info.lock().await = Some(battery_info);
                     }
+                    drop(device_manager);
 
-                    tokio::time::sleep(Duration::from_secs(10)).await;
+                    tokio::time::sleep(Duration::from_secs(BATTERY_SCAN_INTERVAL_SEC)).await;
                 }
             }),
         }

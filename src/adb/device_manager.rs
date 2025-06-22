@@ -9,7 +9,7 @@ use crate::adb::adb_device::AdbVrDevice;
 
 pub struct DeviceManager {
     current_device: Arc<Mutex<Option<AdbVrDevice>>>,
-    monitor_thread: JoinHandle<()>,
+    _monitor_thread: JoinHandle<()>,
 }
 
 impl DeviceManager {
@@ -17,7 +17,7 @@ impl DeviceManager {
         let current_device = Arc::new(Mutex::new(Self::find_connected_device()?));
         Ok(Self {
             current_device: current_device.clone(),
-            monitor_thread: thread::spawn(move || {
+            _monitor_thread: thread::spawn(move || {
                 let socket = MonitorBuilder::new().unwrap()
                     .match_subsystem_devtype("usb", "usb_device").unwrap()
                     .listen().unwrap();
@@ -47,7 +47,7 @@ impl DeviceManager {
                                         let device_path = current_device
                                             .as_ref()
                                             .map(|d| d.dev_path.as_str());
-                                        
+
                                         match device_path {
                                             Some(disconn_dev_path) if disconn_dev_path == dev_path => {
                                                 if let Some(device) = current_device.as_ref() {
@@ -76,23 +76,23 @@ impl DeviceManager {
             }),
         })
     }
-    
+
     pub fn get_current_device(&self) -> anyhow::Result<Option<AdbVrDevice>> {
         let current_device = self.current_device.lock()
             .map_err(|_| anyhow::anyhow!("Failed to acquire device lock"))?;
         Ok(current_device.clone())
     }
-    
+
     fn find_connected_device() -> anyhow::Result<Option<AdbVrDevice>> {
         let mut enumerator = Enumerator::new()?;
         enumerator.match_subsystem("usb")?;
-        
+
         for device in enumerator.scan_devices()? {
             if let Ok(vr_device) = AdbVrDevice::try_from(&device) {
                 return Ok(Some(vr_device));
             }
         }
-        
+
         Ok(None)
     }
 }

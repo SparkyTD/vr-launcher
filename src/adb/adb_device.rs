@@ -4,6 +4,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use num_enum::TryFromPrimitive;
 use udev::Device;
 
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct AdbVrDevice {
     pub is_usb_connected: Arc<AtomicBool>,
@@ -80,18 +81,8 @@ impl TryFrom<&Device> for AdbVrDevice {
 
 impl AdbVrDevice {
     pub fn adb_shell_command(&self, command_args: &[&str]) -> anyhow::Result<std::process::Output> {
-        let conn_id = match (self.is_usb_connected.load(Ordering::SeqCst), self.ip_address.as_ref()) {
-            (true, _) => self.usb_serial.clone(),
-            (false, Some(ip)) => {
-                if let Ok(_) = self.try_connect_tcpip(5555) {
-                    format!("{}:{}", ip, 5555)
-                } else {
-                    return Err(anyhow::anyhow!("Unable to connect to VR device via LAN").into());
-                }
-            },
-            _ => return Err(anyhow::anyhow!("Unable to connect to VR device").into()),
-        };
-        
+        let conn_id = self.get_conn_id()?;
+
         Ok(Command::new("adb")
             .args(&["-s", &conn_id])
             .arg("shell")
@@ -99,7 +90,39 @@ impl AdbVrDevice {
             .output()?
         )
     }
-    
+
+    pub fn try_open_tcp_tunnel(&self, port: u32) -> anyhow::Result<()> {
+        let conn_id = self.get_conn_id()?;
+        Command::new("adb")
+            .args(&["-s", &conn_id])
+            .arg("reverse")
+            .arg(format!("tcp:{}", port))
+            .arg(format!("tcp:{}", port))
+            .output()?;
+
+        Ok(())
+    }
+
+    pub fn is_hmd_mounted(&self) -> anyhow::Result<bool> {
+        let result = self.adb_shell_command(&[
+            "dumpsys", "power",
+        ])?;
+
+        for line in String::from_utf8(result.stdout)?.lines() {
+            let line = line.trim();
+            if line.is_empty() || !line.contains('=') {
+                continue;
+            }
+
+            let parts = line.split('=').collect::<Vec<_>>();
+            if parts[0] == "mWakefulness" && parts.len() == 2 {
+                return Ok(parts[1] == "Awake");
+            }
+        }
+
+        Ok(false)
+    }
+
     pub(crate) fn try_connect_tcpip(&self, port: u32) -> anyhow::Result<()> {
         if let Some(ip) = self.ip_address.as_ref() {
             Command::new("adb")
@@ -109,6 +132,20 @@ impl AdbVrDevice {
         }
 
         Ok(())
+    }
+
+    fn get_conn_id(&self) -> anyhow::Result<String> {
+        match (self.is_usb_connected.load(Ordering::SeqCst), self.ip_address.as_ref()) {
+            (true, _) => Ok(self.usb_serial.clone()),
+            (false, Some(ip)) => {
+                if let Ok(_) = self.try_connect_tcpip(5555) {
+                    Ok(format!("{}:{}", ip, 5555))
+                } else {
+                    Err(anyhow::anyhow!("Unable to connect to VR device via LAN").into())
+                }
+            },
+            _ => Err(anyhow::anyhow!("Unable to connect to VR device").into()),
+        }
     }
 }
 

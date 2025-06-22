@@ -39,4 +39,12 @@ impl WlxOverlayManager {
 
         Ok(())
     }
+    
+    pub fn stop(&mut self) -> anyhow::Result<()> {
+        if let Some(mut process) = self.overlay_process.take() {
+            process.kill()?;
+        }
+        
+        Ok(())
+    }
 }
