@@ -1,4 +1,5 @@
 use std::sync::{Arc, Mutex};
+use async_trait::async_trait;
 use crate::logging::log_channel::LogChannel;
 
 pub mod wivrn;
@@ -12,6 +13,7 @@ pub trait VRBackend {
 
 pub struct BackendStartInfo {
     pub vr_device_serial: String,
+    pub vr_device_ip: Option<String>,
     pub was_restarted: bool,
 }
 

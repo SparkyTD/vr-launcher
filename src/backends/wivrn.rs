@@ -28,7 +28,7 @@ impl VRBackend for WiVRnBackend {
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
                 .spawn()?;
-            
+
             self.logger.replace(logger.clone());
             LogChannel::connect_std(logger, &mut server_process);
 
@@ -49,15 +49,16 @@ impl VRBackend for WiVRnBackend {
 
         Ok(BackendStartInfo {
             vr_device_serial: android_device.serial,
+            vr_device_ip: android_device.ip_address,
             was_restarted: needs_new_server_process,
         })
     }
-    
+
     fn reconnect(&mut self) -> anyhow::Result<()> {
         if self.server_process.is_none() {
             return Ok(());
         }
-        
+
         // Find the serial of the connected Quest 2 device
         let android_device = self.find_vr_device()?;
         println!("Android device found: {:?} ({})", android_device.name, android_device.serial);
@@ -81,7 +82,7 @@ impl VRBackend for WiVRnBackend {
             ])
             .spawn()?
             .wait()?;
-        
+
         Ok(())
     }
 
@@ -112,7 +113,7 @@ impl VRBackend for WiVRnBackend {
                 return Ok(parts[1] == "Awake");
             }
         }
-        
+
         Ok(false)
     }
 }
@@ -137,9 +138,24 @@ impl WiVRnBackend {
                     continue;
                 }
 
+                let ip_output = Command::new("adb")
+                    .args(&[
+                        "-s", &serial,
+                        "shell", "ip", "addr", "show", "wlan0",
+                    ])
+                    .output()?;
+
+                let ip_output = String::from_utf8(ip_output.stdout)?;
+                let ip_address = ip_output
+                    .lines()
+                    .find(|line| line.contains("inet") && line.contains("scope global"))
+                    .map(|line| line.split_ascii_whitespace().nth(1).unwrap())
+                    .map(|ip| ip.split('/').nth(0).unwrap().to_string());
+
                 return Ok(AndroidDevice {
                     serial,
                     name: product,
+                    ip_address,
                 });
             }
         }
@@ -151,4 +167,5 @@ impl WiVRnBackend {
 struct AndroidDevice {
     name: String,
     serial: String,
+    ip_address: Option<String>,
 }

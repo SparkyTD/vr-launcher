@@ -1,10 +1,10 @@
-use num_enum::{FromPrimitive};
-use std::process::Command;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc};
-use std::time::Duration;
+use crate::adb::device_manager::DeviceManager;
 use futures_util::FutureExt;
+use num_enum::FromPrimitive;
 use serde::Serialize;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::broadcast::Sender;
 use tokio::sync::Mutex;
 use tokio::task::JoinHandle;
@@ -15,6 +15,7 @@ const CHARGE_HISTORY_SAMPLES: usize = 128;
 #[allow(dead_code)]
 pub struct BatteryMonitor {
     active_device_serial: Arc<Mutex<Option<String>>>,
+    active_device_ip: Arc<Mutex<Option<String>>>,
     is_active: Arc<AtomicBool>,
     monitor_thread: JoinHandle<()>,
     current_info: Arc<Mutex<Option<AndroidBatteryInfo>>>,
@@ -22,15 +23,17 @@ pub struct BatteryMonitor {
 }
 
 impl BatteryMonitor {
-    pub fn new(ws_tx: Sender<String>) -> Self {
+    pub fn new(ws_tx: Sender<String>, device_manager: Arc<Mutex<DeviceManager>>) -> Self {
         let is_active = Arc::new(AtomicBool::new(true));
-        let active_serial = Arc::new(Mutex::new(Some("1WMHHA67UU2191".into())));
+        let active_serial = Arc::new(Mutex::new(None));
+        let active_device_ip = Arc::new(Mutex::new(None));
 
         let current_info = Arc::new(Mutex::new(None));
         let previous_percentage = Arc::new(Mutex::new(vec![]));
 
         Self {
             active_device_serial: active_serial.clone(),
+            active_device_ip: active_device_ip.clone(),
             current_info: current_info.clone(),
             charge_history: previous_percentage.clone(),
             is_active: is_active.clone(),
@@ -39,17 +42,14 @@ impl BatteryMonitor {
                     if !is_active.load(Ordering::SeqCst) {
                         break;
                     }
+                    
+                    let device_manager = device_manager.lock().await;
+                    if let Ok(Some(current_device)) = device_manager.get_current_device() {
+                        let battery_output = current_device
+                            .adb_shell_command(&["dumpsys", "battery"])
+                            .unwrap();
 
-                    let active_serial = active_serial.lock().await;
-                    if let Some(serial) = active_serial.as_ref() {
-                        let output = Command::new("adb")
-                            .args(&[
-                                "-s", serial,
-                                "shell", "dumpsys", "battery"
-                            ])
-                            .output().unwrap();
-
-                        let dumpsys = String::from_utf8_lossy(&output.stdout).to_string();
+                        let dumpsys = String::from_utf8_lossy(&battery_output.stdout).to_string();
                         let power_info = AndroidBatteryStats::try_parse(&dumpsys).unwrap();
 
                         let mut percentage_history = previous_percentage.lock().await;
@@ -68,7 +68,7 @@ impl BatteryMonitor {
                         *current_info.lock().await = Some(battery_info);
                     }
 
-                    tokio::time::sleep(Duration::from_secs(30)).await;
+                    tokio::time::sleep(Duration::from_secs(10)).await;
                 }
             }),
         }
@@ -77,6 +77,11 @@ impl BatteryMonitor {
     pub fn set_active_device_serial(&mut self, serial: String) {
         _ = self.active_device_serial.lock()
             .map(|mut s| s.replace(serial));
+    }
+
+    pub fn set_active_device_ip(&mut self, ip: String) {
+        _ = self.active_device_ip.lock()
+            .map(|mut i| i.replace(ip));
     }
 
     pub async fn get_battery_info_async(&self) -> Option<AndroidBatteryInfo> {
@@ -139,7 +144,7 @@ pub enum BatteryStatus {
 
 #[derive(Debug, Clone, Serialize, TS)]
 pub enum BatteryChargeSource {
-    Unknown,
+    Battery,
     AC,
     USB,
     Dock,
@@ -149,7 +154,7 @@ pub enum BatteryChargeSource {
 impl AndroidBatteryStats {
     pub fn try_parse(dumpsys_output: &str) -> anyhow::Result<AndroidBatteryStats> {
         let mut battery_info = AndroidBatteryStats {
-            power_source: BatteryChargeSource::Unknown,
+            power_source: BatteryChargeSource::Battery,
             is_weak_charger: false,
             max_charge_current_ma: 0,
             max_charge_voltage_mv: 0,

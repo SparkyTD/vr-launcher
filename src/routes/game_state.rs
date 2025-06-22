@@ -33,7 +33,7 @@ pub async fn launch_game(
         .expect("Error loading games");
 
     println!("[Axum/HTTP] Handling launch request");
-
+    
     match result.pop() {
         Some(game) => {
             match app_state.launch_game(game) {

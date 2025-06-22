@@ -10,11 +10,13 @@ mod backends;
 mod battery_monitor;
 mod overlay;
 mod logging;
+mod adb;
 
 use self::models::*;
 use crate::app_state::AppState;
 use crate::audio_api::{DeviceChangeEvent, PipeWireManager};
 use crate::backends::wivrn::WiVRnBackend;
+use crate::backends::BackendType;
 use crate::battery_monitor::BatteryMonitor;
 use crate::overlay::WlxOverlayManager;
 use crate::steam::launcher::{CompatLauncher, ProcessHandle};
@@ -27,7 +29,7 @@ use std::sync::Arc;
 use steam::steam_interface::SteamInterface;
 use tokio::sync::{broadcast, Mutex};
 use ts_rs::TS;
-use crate::backends::BackendType;
+use crate::adb::device_manager::DeviceManager;
 
 include!(concat!(env!("OUT_DIR"), "/frontend_assets.rs"));
 
@@ -64,6 +66,7 @@ async fn main() -> anyhow::Result<()> {
         }
     });
 
+    let device_manager = Arc::new(Mutex::new(DeviceManager::new()?));
     let ws_tx_clone = ws_tx.clone();
     let app_state = Arc::new(Mutex::new(AppState {
         audio_api,
@@ -71,16 +74,16 @@ async fn main() -> anyhow::Result<()> {
         launcher: launcher.clone(),
         active_game_session: None,
         sock_tx: ws_tx,
+        device_manager: device_manager.clone(),
         backend_type: BackendType::Unknown,
         wivrn_backend: WiVRnBackend::new(),
-        battery_monitor: BatteryMonitor::new(ws_tx_clone),
+        battery_monitor: BatteryMonitor::new(ws_tx_clone, device_manager.clone()),
         overlay_manager: WlxOverlayManager::new(),
         log_session: None,
         launch_requests: HashSet::new(),
     }));
-    
-    
-    
+
+
     launcher.set_app_state_async(app_state.clone()).await;
 
     let app = Router::new()

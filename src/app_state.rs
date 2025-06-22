@@ -21,6 +21,7 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use sysinfo::System;
 use tokio::sync::{broadcast, Mutex};
+use crate::adb::device_manager::DeviceManager;
 
 pub struct AppState {
     pub audio_api: PipeWireManager,
@@ -28,6 +29,7 @@ pub struct AppState {
     pub launcher: Arc<CompatLauncher>,
     pub active_game_session: Option<GameSession>,
     pub sock_tx: broadcast::Sender<String>,
+    pub device_manager: Arc<Mutex<DeviceManager>>,
     pub backend_type: BackendType,
     pub wivrn_backend: WiVRnBackend,
     pub battery_monitor: BatteryMonitor,
@@ -117,8 +119,11 @@ impl AppState {
             .create_channel("vr_backend")?;
         let start_info = backend.start(backend_log_channel)?;
         self.battery_monitor.set_active_device_serial(start_info.vr_device_serial.clone());
+        if let Some(device_ip) = start_info.vr_device_ip {
+            self.battery_monitor.set_active_device_ip(device_ip);
+        }
 
-        // Start the overlay
+        // TODO: Start the overlay
         if start_info.was_restarted {
             //let backend_log_channel = self.log_session.as_mut().unwrap()
             //             .create_channel("overlay")?;
