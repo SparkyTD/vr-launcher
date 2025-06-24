@@ -13,6 +13,7 @@ mod logging;
 mod adb;
 
 use self::models::*;
+use crate::adb::device_manager::DeviceManager;
 use crate::app_state::AppState;
 use crate::audio_api::{DeviceChangeEvent, PipeWireManager};
 use crate::backends::BackendType;
@@ -25,15 +26,16 @@ use axum::Router;
 use serde::Serialize;
 use std::collections::HashSet;
 use std::sync::Arc;
+use tokio::runtime::Handle;
+use tokio::signal;
 use steam::steam_interface::SteamInterface;
 use tokio::sync::{broadcast, Mutex};
 use ts_rs::TS;
-use crate::adb::device_manager::DeviceManager;
 
 include!(concat!(env!("OUT_DIR"), "/frontend_assets.rs"));
 
 pub type StdMutex<T> = std::sync::Mutex<T>;
-pub type TokioMutex<T> = tokio::sync::Mutex<T>;
+pub type TokioMutex<T> = Mutex<T>;
 
 #[derive(Debug, Serialize, TS)]
 #[ts(export, export_to = "rust_bindings.ts")]
@@ -51,31 +53,47 @@ async fn main() -> anyhow::Result<()> {
     let steam_api = SteamInterface::new();
     let launcher = Arc::new(CompatLauncher::new());
 
-    let (ws_tx, _) = broadcast::channel::<String>(100);
+    let (sock_tx, _) = broadcast::channel::<String>(100);
     let audio_api = PipeWireManager::new();
     let mut device_changes = audio_api.subscribe_to_changes();
 
-    let ws_tx_clone = ws_tx.clone();
+    let ws_tx_clone = sock_tx.clone();
+    let (audio_monitor_tx, mut audio_monitor_rx) = tokio::sync::mpsc::channel::<()>(1);
     tokio::spawn(async move {
-        while let Ok(event) = device_changes.recv().await {
-            let message = match event {
-                DeviceChangeEvent::DefaultInputChanged(device) =>
-                    format!("default_input_changed:{}", serde_json::to_string(&device).unwrap()),
-                DeviceChangeEvent::DefaultOutputChanged(device) =>
-                    format!("default_output_changed:{}", serde_json::to_string(&device).unwrap()),
-            };
-            let _ = ws_tx_clone.send(message);
+        loop {
+            tokio::select! {
+                _ = audio_monitor_rx.recv() => {
+                    println!("Audio monitor has received interrupt signal");
+                    break;
+                }
+                event_result = device_changes.recv() => {
+                    match event_result {
+                        Ok(event) => {
+                            let message = match event {
+                                DeviceChangeEvent::DefaultInputChanged(device) =>
+                                    format!("default_input_changed:{}", serde_json::to_string(&device).unwrap()),
+                                DeviceChangeEvent::DefaultOutputChanged(device) =>
+                                    format!("default_output_changed:{}", serde_json::to_string(&device).unwrap()),
+                            };
+                            let _ = ws_tx_clone.send(message);
+                        }
+                        Err(e) => {
+                            println!("Error getting audio device changes: {}", e);
+                        }
+                    }
+                }
+            }
         }
     });
 
     let device_manager = Arc::new(Mutex::new(DeviceManager::new()?));
-    let ws_tx_clone = ws_tx.clone();
+    let ws_tx_clone = sock_tx.clone();
     let app_state = Arc::new(Mutex::new(AppState {
         audio_api,
         steam_api,
         launcher: launcher.clone(),
         active_game_session: None,
-        sock_tx: ws_tx,
+        sock_tx,
         active_backend: None,
         device_manager: device_manager.clone(),
         backend_type: BackendType::Unknown,
@@ -85,9 +103,9 @@ async fn main() -> anyhow::Result<()> {
         launch_requests: HashSet::new(),
     }));
 
-
     launcher.set_app_state_async(app_state.clone()).await;
 
+    let app_state_clone = app_state.clone();
     let app = Router::new()
         .route("/api/games", get(routes::games::list_games))
         .route("/api/games/{game_id}", get(routes::games::get_game_info))
@@ -109,8 +127,29 @@ async fn main() -> anyhow::Result<()> {
         ))
         .with_state(app_state);
 
+    let shutdown_signal = async {
+        signal::ctrl_c().await.expect("Failed to install Ctrl+C handler");
+        println!("Received Ctrl+C signal, shutting down gracefully...");
+    };
+
     let listener = tokio::net::TcpListener::bind("0.0.0.0:3001").await?;
-    axum::serve(listener, app).await?;
+    let server = axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal);
+
+    match server.await {
+        Ok(_) => println!("The server has stopped"),
+        Err(e) => println!("The server failed to start: {}", e),
+    }
+
+    let mut app_state = app_state_clone.lock().await;
+    app_state.shutdown()?;
+    audio_monitor_tx.send(()).await?;
+
+    #[cfg(debug_assertions)]
+    {
+        let metrics = Handle::current().metrics();
+        println!("Active tokio tasks: {}", metrics.num_alive_tasks());
+    }
 
     Ok(())
 }

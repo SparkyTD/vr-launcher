@@ -17,10 +17,9 @@ pub struct AdbVrDevice {
     pub ip_address: Option<String>,
 }
 
-impl TryFrom<&Device> for AdbVrDevice {
-    type Error = Box<dyn std::error::Error>;
+impl AdbVrDevice {
 
-    fn try_from(device: &Device) -> Result<Self, Self::Error> {
+    pub fn try_from(device: &Device) -> anyhow::Result<Self> {
         let vendor_id = device
             .attribute_value("idVendor")
             .and_then(|value| value.to_str())

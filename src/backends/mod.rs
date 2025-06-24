@@ -1,6 +1,7 @@
 use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use crate::adb::device_manager::DeviceManager;
+use crate::audio_api::AudioDevice;
 use crate::logging::log_channel::LogChannel;
 use crate::TokioMutex;
 
@@ -11,6 +12,7 @@ pub trait VRBackend: Send {
     async fn start_async(&mut self, backend_log_channel: Arc<Mutex<LogChannel>>, device_manager: Arc<TokioMutex<DeviceManager>>) -> anyhow::Result<BackendStartInfo>;
     async fn reconnect_async(&mut self, device_manager: Arc<TokioMutex<DeviceManager>>) -> anyhow::Result<()>;
     fn stop(&mut self) -> anyhow::Result<()>;
+    fn is_matching_audio_device(&self, device: &AudioDevice) -> bool;
 }
 
 pub struct BackendStartInfo {

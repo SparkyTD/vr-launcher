@@ -5,6 +5,7 @@ use crate::TokioMutex;
 use async_trait::async_trait;
 use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
+use crate::audio_api::AudioDevice;
 
 pub struct WiVRnBackend {
     server_process: Option<std::process::Child>,
@@ -30,13 +31,19 @@ impl VRBackend for WiVRnBackend {
                 .spawn()?;
 
             self.logger.replace(backend_log_channel.clone());
-            LogChannel::connect_std(backend_log_channel, &mut server_process);
+            LogChannel::connect_std(backend_log_channel.clone(), &mut server_process);
 
             self.server_process.replace(server_process);
-            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
             match self.server_process.as_mut().unwrap().try_wait()? {
                 Some(status) => {
-                    return Err(anyhow::anyhow!("WiVRn server exited unexpectedly with status {}", status));
+                    let log_channel = backend_log_channel.lock()
+                        .map_err(|e| anyhow::anyhow!("Failed to lock wiVRn log channel: {}", e))?;
+                    let last_error_line = log_channel.get_stderr_lines().last();
+                    return Err(anyhow::anyhow!("WiVRn server exited unexpectedly with status {}: {:?}",
+                        status,
+                        last_error_line.unwrap_or(&"Unknown error".into())
+                    ));
                 }
                 None => {}
             }
@@ -47,9 +54,9 @@ impl VRBackend for WiVRnBackend {
         self.reconnect_async(device_manager.clone()).await?;
 
         let device_manager = device_manager.lock().await;
-        let active_device = device_manager.get_current_device()?
+        let active_device = device_manager.get_current_device_async().await?
             .ok_or_else(|| anyhow::anyhow!("No active device found"))?;
-        
+
         Ok(BackendStartInfo {
             vr_device_serial: active_device.usb_serial,
             vr_device_ip: active_device.ip_address,
@@ -65,7 +72,7 @@ impl VRBackend for WiVRnBackend {
         // Forward socket connection
         println!("Forwarding socket connection...");
         let device_manager = device_manager.lock().await;
-        let active_device = device_manager.get_current_device()?
+        let active_device = device_manager.get_current_device_async().await?
             .ok_or_else(|| anyhow::anyhow!("No active device found"))?;
         active_device.try_open_tcp_tunnel(9757)?;
 
@@ -75,7 +82,7 @@ impl VRBackend for WiVRnBackend {
             "am", "start",
             "-a", "android.intent.action.VIEW",
             "-d", "wivrn+tcp://127.0.0.1:9757",
-            "package:org.meumeu.wivrn.github"
+            "package:org.meumeu.wivrn.github",
         ])?;
 
         Ok(())
@@ -87,6 +94,10 @@ impl VRBackend for WiVRnBackend {
         }
 
         Ok(())
+    }
+
+    fn is_matching_audio_device(&self, device: &AudioDevice) -> bool {
+        device.description.to_lowercase().contains("wivrn")
     }
 }
 

@@ -11,7 +11,7 @@ use tokio::task::JoinHandle;
 use ts_rs::TS;
 
 const CHARGE_HISTORY_SAMPLES: usize = 128;
-const BATTERY_SCAN_INTERVAL_SEC: u64 = 30;
+const BATTERY_SCAN_INTERVAL_SEC: u64 = 5;
 
 #[allow(dead_code)]
 pub struct BatteryMonitor {
@@ -44,34 +44,39 @@ impl BatteryMonitor {
                         break;
                     }
 
+                    println!("Will try to query battery levels");
+
                     let device_manager = device_manager.lock().await;
-                    if let Ok(Some(current_device)) = device_manager.get_current_device() {
-                        let battery_output = current_device
-                            .adb_shell_command(&["dumpsys", "battery"])
-                            .unwrap();
+                    if let Ok(Some(current_device)) = device_manager.get_current_device_async().await {
+                        if let Ok(battery_output) = current_device.adb_shell_command(&["dumpsys", "battery"]) {
+                            let dumpsys = String::from_utf8_lossy(&battery_output.stdout).to_string();
+                            let power_info = AndroidBatteryStats::try_parse(&dumpsys).unwrap();
 
-                        let dumpsys = String::from_utf8_lossy(&battery_output.stdout).to_string();
-                        let power_info = AndroidBatteryStats::try_parse(&dumpsys).unwrap();
+                            let mut percentage_history = previous_percentage.lock().await;
+                            if percentage_history.len() > CHARGE_HISTORY_SAMPLES {
+                                percentage_history.remove(0);
+                            }
+                            percentage_history.push(power_info.level);
+                            println!("Level: {}", power_info.level);
 
-                        let mut percentage_history = previous_percentage.lock().await;
-                        if percentage_history.len() > CHARGE_HISTORY_SAMPLES {
-                            percentage_history.remove(0);
+                            let battery_info = AndroidBatteryInfo {
+                                stats: power_info,
+                                history: percentage_history.clone(),
+                            };
+
+                            _ = ws_tx.send(format!("battery:{}", serde_json::to_string(&battery_info).unwrap()));
+
+                            *current_info.lock().await = Some(battery_info);
+                        } else {
+                            eprintln!("Failed to get battery info");
                         }
-                        percentage_history.push(power_info.level);
-
-                        let battery_info = AndroidBatteryInfo {
-                            stats: power_info,
-                            history: percentage_history.clone(),
-                        };
-
-                        _ = ws_tx.send(format!("battery:{}", serde_json::to_string(&battery_info).unwrap()));
-
-                        *current_info.lock().await = Some(battery_info);
                     }
                     drop(device_manager);
 
                     tokio::time::sleep(Duration::from_secs(BATTERY_SCAN_INTERVAL_SEC)).await;
                 }
+
+                println!(" >>> Battery loop has exited");
             }),
         }
     }

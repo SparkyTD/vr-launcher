@@ -1,23 +1,23 @@
-use std::os::fd::{AsRawFd, BorrowedFd};
-use std::sync::{Arc, Mutex};
-use std::sync::atomic::Ordering;
-use std::thread;
-use std::thread::JoinHandle;
-use nix::poll::{poll, PollFd, PollFlags, PollTimeout};
-use udev::{Enumerator, MonitorBuilder};
 use crate::adb::adb_device::AdbVrDevice;
+use crate::TokioMutex;
+use nix::poll::{poll, PollFd, PollFlags, PollTimeout};
+use std::os::fd::{AsRawFd, BorrowedFd};
+use std::sync::atomic::Ordering;
+use std::sync::Arc;
+use tokio::task::JoinHandle;
+use udev::{Enumerator, MonitorBuilder};
 
 pub struct DeviceManager {
-    current_device: Arc<Mutex<Option<AdbVrDevice>>>,
+    current_device: Arc<TokioMutex<Option<AdbVrDevice>>>,
     _monitor_thread: JoinHandle<()>,
 }
 
 impl DeviceManager {
     pub fn new() -> anyhow::Result<Self> {
-        let current_device = Arc::new(Mutex::new(Self::find_connected_device()?));
+        let current_device = Arc::new(TokioMutex::new(Self::find_connected_device()?));
         Ok(Self {
             current_device: current_device.clone(),
-            _monitor_thread: thread::spawn(move || {
+            _monitor_thread: tokio::task::spawn(async move {
                 let socket = MonitorBuilder::new().unwrap()
                     .match_subsystem_devtype("usb", "usb_device").unwrap()
                     .listen().unwrap();
@@ -34,7 +34,7 @@ impl DeviceManager {
                                     .and_then(|str| str.to_str());
                                 let dev_path = event.devpath();
 
-                                let mut current_device = current_device.lock().unwrap();
+                                let mut current_device = current_device.lock().await;
 
                                 match action {
                                     Some("bind") => {
@@ -77,9 +77,8 @@ impl DeviceManager {
         })
     }
 
-    pub fn get_current_device(&self) -> anyhow::Result<Option<AdbVrDevice>> {
-        let current_device = self.current_device.lock()
-            .map_err(|_| anyhow::anyhow!("Failed to acquire device lock"))?;
+    pub async fn get_current_device_async(&self) -> anyhow::Result<Option<AdbVrDevice>> {
+        let current_device = self.current_device.lock().await;
         Ok(current_device.clone())
     }
 

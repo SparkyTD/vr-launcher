@@ -103,7 +103,7 @@ pub async fn reload_backend(State(app_state): State<AppStateWrapper>) -> impl In
             .body(Body::from("No active game session found"))
             .unwrap();
     }
-    
+
     let device_manager = app_state.device_manager.clone();
 
     match &app_state.backend_type {

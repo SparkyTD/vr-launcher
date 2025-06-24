@@ -29,7 +29,9 @@ export class Api {
     }
 
     public static async KillActiveGameAsync(): Promise<void> {
-        await fetch(Api.GetApiUrl(`/games/active/kill`))
+        await fetch(Api.GetApiUrl(`/games/active/kill`), {
+            method: "POST",
+        })
     }
 
     public static async ReconnectBackendAsync(): Promise<void> {

@@ -16,6 +16,8 @@ pub struct LogChannel {
     stderr_logger_handle: Option<thread::JoinHandle<()>>,
     stdout_logger_handle_tokio: Option<tokio::task::JoinHandle<()>>,
     stderr_logger_handle_tokio: Option<tokio::task::JoinHandle<()>>,
+    stdout_lines: Vec<String>,
+    stderr_lines: Vec<String>,
 }
 
 impl LogChannel {
@@ -34,6 +36,8 @@ impl LogChannel {
             stderr_logger_handle: None,
             stdout_logger_handle_tokio: None,
             stderr_logger_handle_tokio: None,
+            stdout_lines: Vec::new(),
+            stderr_lines: Vec::new(),
         })
     }
 
@@ -42,8 +46,14 @@ impl LogChannel {
         let datetime: DateTime<Utc> = now.into();
         let timestamp = datetime.format("%Y-%m-%d %H:%M:%S");
         let log_type = match log_type {
-            LogType::StdOut => "Output",
-            LogType::StdErr => "Error",
+            LogType::StdOut => {
+                self.stdout_lines.push(message.to_string());
+                "Output"
+            },
+            LogType::StdErr => {
+                self.stderr_lines.push(message.to_string());
+                "Error"
+            },
         };
         println!("[{}] [{}] [{}] {}", timestamp, self.name, log_type, message);
         self.log_file.write_all(format!("{}\n", message).as_bytes()).unwrap();
@@ -114,6 +124,16 @@ impl LogChannel {
         _ = self.stderr_logger_handle_tokio.take();
 
         Ok(())
+    }
+    
+    #[allow(dead_code)]
+    pub fn get_stdout_lines(&self) -> &Vec<String> {
+        &self.stdout_lines
+    }
+    
+    #[allow(dead_code)]
+    pub fn get_stderr_lines(&self) -> &Vec<String> {
+        &self.stderr_lines
     }
 }
 

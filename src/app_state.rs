@@ -1,3 +1,4 @@
+use crate::adb::device_manager::DeviceManager;
 use crate::audio_api::PipeWireManager;
 use crate::backends::wivrn::WiVRnBackend;
 use crate::backends::{BackendType, VRBackend};
@@ -21,7 +22,7 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use sysinfo::System;
 use tokio::sync::{broadcast, Mutex};
-use crate::adb::device_manager::DeviceManager;
+use tokio::time::Instant;
 
 pub struct AppState {
     pub audio_api: PipeWireManager,
@@ -110,7 +111,7 @@ impl AppState {
         // Check if headset is currently mounted
         {
             let device_manager = self.device_manager.lock().await;
-            let active_device = device_manager.get_current_device()?
+            let active_device = device_manager.get_current_device_async().await?
                 .ok_or_else(|| anyhow::anyhow!("No active device found"))?;
 
             ensure!(
@@ -129,6 +130,28 @@ impl AppState {
         if let Some(device_ip) = start_info.vr_device_ip {
             self.battery_monitor.set_active_device_ip(device_ip);
         }
+
+        // Wait for virtual audio devices to be registered
+        let start = Instant::now();
+        let (output_device, input_device) = loop {
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            
+            let output = self.audio_api.get_output_devices().iter()
+                .find(|d| backend.is_matching_audio_device(d))
+                .cloned();
+            let input = self.audio_api.get_input_devices().iter()
+                .find(|d| backend.is_matching_audio_device(d))
+                .cloned();
+
+            if start.elapsed().as_secs() > 3 && output.is_none() && input.is_none() {
+                return Err(anyhow::anyhow!("Couldn't find the virtual audio devices for this backend!"));
+            } else if output.is_some() && input.is_some() {
+                break (output, input);
+            }
+        };
+
+        self.audio_api.set_default_output_device(output_device.as_ref().unwrap());
+        self.audio_api.set_default_input_device(input_device.as_ref().unwrap());
 
         self.active_backend.replace(backend);
 
@@ -208,6 +231,16 @@ impl AppState {
         session.archive_old_files()?;
         self.log_session.replace(session);
 
+        Ok(())
+    }
+    
+    pub fn shutdown(&mut self) -> anyhow::Result<()> {
+        if let Some(mut active_backend) = self.active_backend.take() {
+            active_backend.stop()?;
+        }
+        if let Some(mut log_session) = self.log_session.take() {
+            log_session.shutdown()?;
+        }
         Ok(())
     }
 }
