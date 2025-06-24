@@ -37,6 +37,7 @@ pub struct AppState {
     pub overlay_manager: WlxOverlayManager,
     pub log_session: Option<LogSession>,
     pub launch_requests: HashSet<String>,
+    pub socket_stop_tx: broadcast::Sender<()>,
 }
 
 pub type AppStateWrapper = Arc<Mutex<AppState>>;

@@ -58,12 +58,13 @@ async fn main() -> anyhow::Result<()> {
     let mut device_changes = audio_api.subscribe_to_changes();
 
     let ws_tx_clone = sock_tx.clone();
-    let (audio_monitor_tx, mut audio_monitor_rx) = tokio::sync::mpsc::channel::<()>(1);
+    let (audio_monitor_stop_tx, _) = broadcast::channel::<()>(1);
+    let mut audio_monitor_stop_rx = audio_monitor_stop_tx.subscribe();
     tokio::spawn(async move {
         loop {
             tokio::select! {
-                _ = audio_monitor_rx.recv() => {
-                    println!("Audio monitor has received interrupt signal");
+                _ = audio_monitor_stop_rx.recv() => {
+                    println!("Audio monitor has received an interrupt signal");
                     break;
                 }
                 event_result = device_changes.recv() => {
@@ -78,15 +79,20 @@ async fn main() -> anyhow::Result<()> {
                             let _ = ws_tx_clone.send(message);
                         }
                         Err(e) => {
-                            println!("Error getting audio device changes: {}", e);
+                            eprintln!("Error getting audio device changes: {}", e);
                         }
                     }
                 }
             }
         }
+        println!("  >> [AUDIO_MON] Task exiting");
     });
 
-    let device_manager = Arc::new(Mutex::new(DeviceManager::new()?));
+
+    let (socket_stop_tx, _) = broadcast::channel::<()>(1);
+    let (bat_mon_stop_tx, _) = broadcast::channel::<()>(1);
+    let (device_mon_stop_tx, _) = broadcast::channel::<()>(1);
+    let device_manager = Arc::new(Mutex::new(DeviceManager::new(device_mon_stop_tx.clone())?));
     let ws_tx_clone = sock_tx.clone();
     let app_state = Arc::new(Mutex::new(AppState {
         audio_api,
@@ -94,10 +100,11 @@ async fn main() -> anyhow::Result<()> {
         launcher: launcher.clone(),
         active_game_session: None,
         sock_tx,
+        socket_stop_tx: socket_stop_tx.clone(),
         active_backend: None,
         device_manager: device_manager.clone(),
         backend_type: BackendType::Unknown,
-        battery_monitor: BatteryMonitor::new(ws_tx_clone, device_manager.clone()),
+        battery_monitor: BatteryMonitor::new(ws_tx_clone, device_manager.clone(), bat_mon_stop_tx.clone()),
         overlay_manager: WlxOverlayManager::new(),
         log_session: None,
         launch_requests: HashSet::new(),
@@ -137,18 +144,30 @@ async fn main() -> anyhow::Result<()> {
         .with_graceful_shutdown(shutdown_signal);
 
     match server.await {
-        Ok(_) => println!("The server has stopped"),
+        Ok(_) => println!("The web listener has stopped"),
         Err(e) => println!("The server failed to start: {}", e),
     }
 
+    println!("[SHUTDOWN] Locking app state for shutdown");
     let mut app_state = app_state_clone.lock().await;
+    println!("[SHUTDOWN] Running shutdown routines");
     app_state.shutdown()?;
-    audio_monitor_tx.send(()).await?;
+    println!("[SHUTDOWN] Sending interrupt signal to the audio monitor");
+    _ = audio_monitor_stop_tx.send(());
+    println!("[SHUTDOWN] Sending interrupt signal to the battery monitor");
+    _ = bat_mon_stop_tx.send(());
+    println!("[SHUTDOWN] Sending interrupt signal to the device monitor");
+    _ = device_mon_stop_tx.send(());
+    println!("[SHUTDOWN] Sending interrupt signal to the socket server");
+    _ = socket_stop_tx.send(());
 
     #[cfg(debug_assertions)]
     {
-        let metrics = Handle::current().metrics();
-        println!("Active tokio tasks: {}", metrics.num_alive_tasks());
+        println!("Sent all interrupt signals, waiting for 1 second...");
+        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+
+        let handle = Handle::current();
+        println!("Active tokio tasks: {}", handle.metrics().num_alive_tasks());
     }
 
     Ok(())

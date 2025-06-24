@@ -1,10 +1,10 @@
 use crate::adb::adb_device::AdbVrDevice;
 use crate::TokioMutex;
-use nix::poll::{poll, PollFd, PollFlags, PollTimeout};
-use std::os::fd::{AsRawFd, BorrowedFd};
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
+use tokio::sync::broadcast::Sender;
 use tokio::task::JoinHandle;
+use tokio::time::{sleep, Duration};
 use udev::{Enumerator, MonitorBuilder};
 
 pub struct DeviceManager {
@@ -13,68 +13,99 @@ pub struct DeviceManager {
 }
 
 impl DeviceManager {
-    pub fn new() -> anyhow::Result<Self> {
+    pub fn new(stop_tx: Sender<()>) -> anyhow::Result<Self> {
         let current_device = Arc::new(TokioMutex::new(Self::find_connected_device()?));
+        let mut stop_rx = stop_tx.subscribe();
+
         Ok(Self {
             current_device: current_device.clone(),
             _monitor_thread: tokio::task::spawn(async move {
-                let socket = MonitorBuilder::new().unwrap()
-                    .match_subsystem_devtype("usb", "usb_device").unwrap()
-                    .listen().unwrap();
+                let socket = match MonitorBuilder::new()
+                    .and_then(|builder| builder.match_subsystem_devtype("usb", "usb_device"))
+                    .and_then(|builder| builder.listen()) {
+                    Ok(socket) => socket,
+                    Err(e) => {
+                        eprintln!("Failed to create USB monitor: {}", e);
+                        return;
+                    }
+                };
 
-                let fd = socket.as_raw_fd();
                 loop {
-                    let borrowed_fd = unsafe { BorrowedFd::borrow_raw(fd) };
-                    let mut poll_fds = [PollFd::new(borrowed_fd, PollFlags::POLLIN)];
-
-                    match poll(&mut poll_fds, PollTimeout::try_from(-1).unwrap()) {
-                        Ok(n) if n > 0 => {
-                            if let Some(event) = socket.iter().next() {
-                                let action = event.action()
-                                    .and_then(|str| str.to_str());
-                                let dev_path = event.devpath();
-
-                                let mut current_device = current_device.lock().await;
-
-                                match action {
-                                    Some("bind") => {
-                                        if let Ok(device) = AdbVrDevice::try_from(&event.device()) {
-                                            println!("  VR Device Connected: {:?}", device);
-                                            current_device.replace(device);
+                    tokio::select! {
+                        _ = stop_rx.recv() => {
+                            println!("Device monitor has received an interrupt signal");
+                            break;
+                        }
+                        event_result = Self::wait_for_event(&socket) => {
+                            match event_result {
+                                Ok(Some(event)) => {
+                                    let action = event.action().and_then(|str| str.to_str());
+                                    let dev_path = event.devpath();
+    
+                                    let mut current_device = current_device.lock().await;
+    
+                                    match action {
+                                        Some("bind") => {
+                                            if let Ok(device) = AdbVrDevice::try_from(&event.device()) {
+                                                println!("  VR Device Connected: {:?}", device);
+                                                current_device.replace(device);
+                                            }
                                         }
-                                    }
-                                    Some("unbind") => {
-                                        let device_path = current_device
-                                            .as_ref()
-                                            .map(|d| d.dev_path.as_str());
-
-                                        match device_path {
-                                            Some(disconn_dev_path) if disconn_dev_path == dev_path => {
-                                                if let Some(device) = current_device.as_ref() {
-                                                    if device.dev_path == disconn_dev_path {
-                                                        println!("  VR Device Disconnected: {:?}", device);
-                                                        device.is_usb_connected.store(false, Ordering::SeqCst);
+                                        Some("unbind") => {
+                                            let device_path = current_device
+                                                .as_ref()
+                                                .map(|d| d.dev_path.as_str());
+    
+                                            match device_path {
+                                                Some(disconn_dev_path) if disconn_dev_path == dev_path => {
+                                                    if let Some(device) = current_device.as_ref() {
+                                                        if device.dev_path == disconn_dev_path {
+                                                            println!("  VR Device Disconnected: {:?}", device);
+                                                            device.is_usb_connected.store(false, Ordering::SeqCst);
+                                                        }
                                                     }
                                                 }
+                                                _ => {}
                                             }
-                                            _ => {}
                                         }
+                                        _ => {}
                                     }
-                                    _ => {}
+                                }
+                                Ok(None) => {
+                                    continue;
+                                }
+                                Err(e) => {
+                                    eprintln!("Error waiting for USB event: {}", e);
+                                    sleep(Duration::from_millis(100)).await;
                                 }
                             }
-                        }
-                        Ok(_) => {
-                            continue;
-                        }
-                        Err(e) => {
-                            eprintln!("Poll error: {}", e);
-                            break;
                         }
                     }
                 }
             }),
         })
+    }
+
+    async fn wait_for_event(socket: &udev::MonitorSocket) -> Result<Option<udev::Event>, Box<dyn std::error::Error + Send + Sync>> {
+        use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
+        use tokio::io::unix::AsyncFd;
+        use tokio::io::Interest;
+
+        // Create a duplicated fd for this specific wait operation
+        let fd = socket.as_raw_fd();
+        let duplicated_fd = unsafe { libc::dup(fd) };
+        if duplicated_fd == -1 {
+            return Err("Failed to duplicate file descriptor".into());
+        }
+
+        let owned_fd = unsafe { OwnedFd::from_raw_fd(duplicated_fd) };
+        let async_fd = AsyncFd::with_interest(owned_fd, Interest::READABLE)?;
+
+        let mut guard = async_fd.readable().await?;
+        let event = socket.iter().next();
+        guard.clear_ready();
+
+        Ok(event)
     }
 
     pub async fn get_current_device_async(&self) -> anyhow::Result<Option<AdbVrDevice>> {
@@ -95,4 +126,3 @@ impl DeviceManager {
         Ok(None)
     }
 }
-

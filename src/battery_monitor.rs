@@ -24,7 +24,8 @@ pub struct BatteryMonitor {
 }
 
 impl BatteryMonitor {
-    pub fn new(ws_tx: Sender<String>, device_manager: Arc<Mutex<DeviceManager>>) -> Self {
+    pub fn new(ws_tx: Sender<String>, device_manager: Arc<Mutex<DeviceManager>>, stop_ch: Sender<()>) -> Self {
+        let mut stop_rx = stop_ch.subscribe();
         let is_active = Arc::new(AtomicBool::new(true));
         let active_serial = Arc::new(Mutex::new(None));
         let active_device_ip = Arc::new(Mutex::new(None));
@@ -73,10 +74,16 @@ impl BatteryMonitor {
                     }
                     drop(device_manager);
 
-                    tokio::time::sleep(Duration::from_secs(BATTERY_SCAN_INTERVAL_SEC)).await;
+                    tokio::select! {
+                        _ = stop_rx.recv() => {
+                            println!("Battery monitor has received an interrupt signal");
+                            break;
+                        }
+                        _ = tokio::time::sleep(Duration::from_secs(BATTERY_SCAN_INTERVAL_SEC)) => {}
+                    }
                 }
-
-                println!(" >>> Battery loop has exited");
+                
+                println!("  >> [BAT_MON] Task exiting");
             }),
         }
     }

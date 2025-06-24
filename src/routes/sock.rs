@@ -11,20 +11,39 @@ pub async fn sock_state_handler(ws: WebSocketUpgrade, State(state): State<AppSta
 }
 
 async fn sock_state(socket: WebSocket, state: AppStateWrapper) {
-    let mut rx = {
+    let (mut data_rx, mut stop_rx) = {
         let state = state.lock().await;
-        state.sock_tx.subscribe()
+        let result = (state.sock_tx.subscribe(), state.socket_stop_tx.subscribe());
+        drop(state);
+        
+        result
     };
 
     let (mut sender, _) = socket.split();
 
-    // Task to receive broadcast messages and send to client
     let send_task = tokio::spawn(async move {
-        while let Ok(msg) = rx.recv().await {
-            if sender.send(Message::Text(msg.into())).await.is_err() {
-                break; // Client disconnected
+        loop {
+            tokio::select! {
+                _ = stop_rx.recv() => {
+                    println!("A socket handler thread has received an interrupt signal");
+                    break;
+                }
+                message_result = data_rx.recv() => {
+                    match message_result {
+                        Ok(message) => {
+                            if sender.send(Message::Text(message.into())).await.is_err() {
+                                break; // Client disconnected
+                            }
+                        },
+                        Err(err) => {
+                            eprintln!("An error occurred while reading message from socket: {}", err);
+                        },
+                    }
+                }
             }
         }
+
+        println!("  >> [SOCK] Task exiting");
     });
 
     tokio::select! {
