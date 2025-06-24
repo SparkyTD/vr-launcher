@@ -20,6 +20,7 @@ function createWebSocketStore(url: string): WebSocketStore {
     const connect = () => {
         if (ws?.readyState === WebSocket.OPEN) return;
 
+        console.log("Creating WebSocket connection...");
         ws = new WebSocket(url);
 
         ws.onopen = () => {

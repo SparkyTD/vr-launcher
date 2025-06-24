@@ -242,6 +242,9 @@ impl AppState {
         if let Some(mut log_session) = self.log_session.take() {
             log_session.shutdown()?;
         }
+        if let Some(_) = &self.active_game_session {
+            self.kill_active_game()?;
+        }
         Ok(())
     }
 }
