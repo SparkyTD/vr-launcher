@@ -40,12 +40,19 @@ impl BatteryMonitor {
             charge_history: previous_percentage.clone(),
             is_active: is_active.clone(),
             monitor_thread: tokio::spawn(async move {
+                let mut force_update_rx = {
+                    let device_manager = device_manager.lock().await;
+                    let force_update_rx = device_manager.subscribe_to_force_battery_update();
+                    drop(device_manager);
+                    force_update_rx
+                };
+                
                 loop {
                     if !is_active.load(Ordering::SeqCst) {
                         break;
                     }
 
-                    println!("Will try to query battery levels");
+                    //println!("Will try to query battery levels");
 
                     let device_manager = device_manager.lock().await;
                     if let Ok(Some(current_device)) = device_manager.get_current_device_async().await {
@@ -58,7 +65,7 @@ impl BatteryMonitor {
                                 percentage_history.remove(0);
                             }
                             percentage_history.push(power_info.level);
-                            println!("Level: {}", power_info.level);
+                            //println!("Level: {}", power_info.level);
 
                             let battery_info = AndroidBatteryInfo {
                                 stats: power_info,
@@ -79,10 +86,14 @@ impl BatteryMonitor {
                             println!("Battery monitor has received an interrupt signal");
                             break;
                         }
+                        _ = force_update_rx.recv() => {
+                            println!("Battery monitor received a force update signal");
+                            continue;
+                        }
                         _ = tokio::time::sleep(Duration::from_secs(BATTERY_SCAN_INTERVAL_SEC)) => {}
                     }
                 }
-                
+
                 println!("  >> [BAT_MON] Task exiting");
             }),
         }

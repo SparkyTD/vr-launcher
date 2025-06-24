@@ -2,6 +2,7 @@ use crate::adb::adb_device::AdbVrDevice;
 use crate::TokioMutex;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
+use tokio::sync::broadcast;
 use tokio::sync::broadcast::Sender;
 use tokio::task::JoinHandle;
 use tokio::time::{sleep, Duration};
@@ -9,6 +10,7 @@ use udev::{Enumerator, MonitorBuilder};
 
 pub struct DeviceManager {
     current_device: Arc<TokioMutex<Option<AdbVrDevice>>>,
+    force_update_tx: Sender<()>,
     _monitor_thread: JoinHandle<()>,
 }
 
@@ -16,9 +18,11 @@ impl DeviceManager {
     pub fn new(stop_tx: Sender<()>) -> anyhow::Result<Self> {
         let current_device = Arc::new(TokioMutex::new(Self::find_connected_device()?));
         let mut stop_rx = stop_tx.subscribe();
+        let (force_update_tx, _) = tokio::sync::broadcast::channel(1);
 
         Ok(Self {
             current_device: current_device.clone(),
+            force_update_tx: force_update_tx.clone(),
             _monitor_thread: tokio::task::spawn(async move {
                 let socket = match MonitorBuilder::new()
                     .and_then(|builder| builder.match_subsystem_devtype("usb", "usb_device"))
@@ -49,6 +53,7 @@ impl DeviceManager {
                                             if let Ok(device) = AdbVrDevice::try_from(&event.device()) {
                                                 println!("  VR Device Connected: {:?}", device);
                                                 current_device.replace(device);
+                                                _ = force_update_tx.send(());
                                             }
                                         }
                                         Some("unbind") => {
@@ -62,6 +67,7 @@ impl DeviceManager {
                                                         if device.dev_path == disconn_dev_path {
                                                             println!("  VR Device Disconnected: {:?}", device);
                                                             device.is_usb_connected.store(false, Ordering::SeqCst);
+                                                            _ = force_update_tx.send(());
                                                         }
                                                     }
                                                 }
@@ -86,6 +92,10 @@ impl DeviceManager {
         })
     }
 
+    pub fn subscribe_to_force_battery_update(&self) -> broadcast::Receiver<()> {
+        self.force_update_tx.subscribe()
+    }
+    
     async fn wait_for_event(socket: &udev::MonitorSocket) -> Result<Option<udev::Event>, Box<dyn std::error::Error + Send + Sync>> {
         use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
         use tokio::io::unix::AsyncFd;
