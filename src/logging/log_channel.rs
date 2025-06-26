@@ -47,10 +47,16 @@ impl LogChannel {
         let timestamp = datetime.format("%Y-%m-%d %H:%M:%S");
         let log_type = match log_type {
             LogType::StdOut => {
+                if self.stdout_lines.len() > 5000 {
+                    self.stdout_lines.clear();
+                }
                 self.stdout_lines.push(message.to_string());
                 "Output"
             },
             LogType::StdErr => {
+                if self.stderr_lines.len() > 5000 {
+                    self.stderr_lines.clear();
+                }
                 self.stderr_lines.push(message.to_string());
                 "Error"
             },
@@ -137,6 +143,7 @@ impl LogChannel {
     }
 }
 
+#[derive(Debug, Clone)]
 pub enum LogType {
     StdOut,
     StdErr,

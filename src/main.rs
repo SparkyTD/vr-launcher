@@ -26,13 +26,12 @@ use axum::Router;
 use serde::Serialize;
 use std::collections::HashSet;
 use std::sync::Arc;
-use tokio::runtime::Handle;
 use tokio::signal;
 use steam::steam_interface::SteamInterface;
 use tokio::sync::{broadcast, Mutex};
 use ts_rs::TS;
 
-include!(concat!(env!("OUT_DIR"), "/frontend_assets.rs"));
+include!(concat!(env!("OUT_DIR"), "/bundled_assets.rs"));
 
 pub type StdMutex<T> = std::sync::Mutex<T>;
 pub type TokioMutex<T> = Mutex<T>;
@@ -139,7 +138,9 @@ async fn main() -> anyhow::Result<()> {
         println!("Received Ctrl+C signal, shutting down gracefully...");
     };
 
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:3001").await?;
+    let listen_address = "0.0.0.0:3001";
+    println!("Listening on http://{}/", listen_address);
+    let listener = tokio::net::TcpListener::bind(listen_address).await?;
     let server = axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal);
 
@@ -148,17 +149,11 @@ async fn main() -> anyhow::Result<()> {
         Err(e) => println!("The server failed to start: {}", e),
     }
 
-    println!("[SHUTDOWN] Locking app state for shutdown");
     let mut app_state = app_state_clone.lock().await;
-    println!("[SHUTDOWN] Running shutdown routines");
-    app_state.shutdown()?;
-    println!("[SHUTDOWN] Sending interrupt signal to the audio monitor");
+    app_state.shutdown_async().await?;
     _ = audio_monitor_stop_tx.send(());
-    println!("[SHUTDOWN] Sending interrupt signal to the battery monitor");
     _ = bat_mon_stop_tx.send(());
-    println!("[SHUTDOWN] Sending interrupt signal to the device monitor");
     _ = device_mon_stop_tx.send(());
-    println!("[SHUTDOWN] Sending interrupt signal to the socket server");
     _ = socket_stop_tx.send(());
 
     #[cfg(debug_assertions)]
@@ -166,7 +161,7 @@ async fn main() -> anyhow::Result<()> {
         println!("Sent all interrupt signals, waiting for 1 second...");
         tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
 
-        let handle = Handle::current();
+        let handle = tokio::runtime::Handle::current();
         println!("Active tokio tasks: {}", handle.metrics().num_alive_tasks());
     }
 

@@ -1,6 +1,6 @@
 use crate::adb::device_manager::DeviceManager;
 use crate::backends::{BackendStartInfo, VRBackend};
-use crate::logging::log_channel::LogChannel;
+use crate::logging::log_channel::{LogChannel};
 use crate::TokioMutex;
 use async_trait::async_trait;
 use std::process::{Command, Stdio};
@@ -69,23 +69,7 @@ impl VRBackend for WiVRnBackend {
             return Ok(());
         }
 
-        // Forward socket connection
-        println!("Forwarding socket connection...");
-        let device_manager = device_manager.lock().await;
-        let active_device = device_manager.get_current_device_async().await?
-            .ok_or_else(|| anyhow::anyhow!("No active device found"))?;
-        active_device.try_open_tcp_tunnel(9757)?;
-
-        // Start the WiVRn client
-        println!("Starting WiVRn client...");
-        active_device.adb_shell_command(&[
-            "am", "start",
-            "-a", "android.intent.action.VIEW",
-            "-d", "wivrn+tcp://127.0.0.1:9757",
-            "package:org.meumeu.wivrn.github",
-        ])?;
-
-        Ok(())
+        Self::reconnect_static_async(device_manager).await
     }
 
     fn stop(&mut self) -> anyhow::Result<()> {
@@ -107,5 +91,25 @@ impl WiVRnBackend {
             server_process: None,
             logger: None,
         }
+    }
+
+    async fn reconnect_static_async(device_manager: Arc<TokioMutex<DeviceManager>>) -> anyhow::Result<()> {
+        // Forward socket connection
+        println!("Forwarding socket connection...");
+        let device_manager = device_manager.lock().await;
+        let active_device = device_manager.get_current_device_async().await?
+            .ok_or_else(|| anyhow::anyhow!("No active device found"))?;
+        active_device.try_open_tcp_tunnel(9757)?;
+
+        // Start the WiVRn client
+        println!("Starting WiVRn client...");
+        active_device.adb_shell_command(&[
+            "am", "start",
+            "-a", "android.intent.action.VIEW",
+            "-d", "wivrn+tcp://127.0.0.1:9757",
+            "package:org.meumeu.wivrn.github",
+        ])?;
+
+        Ok(())
     }
 }

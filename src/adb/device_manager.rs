@@ -1,3 +1,4 @@
+use std::process::Command;
 use crate::adb::adb_device::AdbVrDevice;
 use crate::TokioMutex;
 use std::sync::atomic::Ordering;
@@ -121,6 +122,14 @@ impl DeviceManager {
     pub async fn get_current_device_async(&self) -> anyhow::Result<Option<AdbVrDevice>> {
         let current_device = self.current_device.lock().await;
         Ok(current_device.clone())
+    }
+
+    pub fn disconnect_tcpip(&self) -> anyhow::Result<()> {
+        Command::new("adb")
+            .arg("disconnect")
+            .output()?;
+
+        Ok(())
     }
 
     fn find_connected_device() -> anyhow::Result<Option<AdbVrDevice>> {

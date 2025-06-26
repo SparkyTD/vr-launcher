@@ -89,7 +89,7 @@ export default function BatteryIndicator() {
                         </div>
                     </div>
 
-                    <div class="absolute top-1/2 left-0 bottom-0 right-0">
+                    <div class="absolute top-0 left-0 bottom-0 right-0">
                         <AreaChart
                             color='rgba(128, 255, 128, 0.2)'
                             data={batteryInfo()!.history}

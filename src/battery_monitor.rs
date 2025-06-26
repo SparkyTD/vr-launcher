@@ -11,7 +11,7 @@ use tokio::task::JoinHandle;
 use ts_rs::TS;
 
 const CHARGE_HISTORY_SAMPLES: usize = 128;
-const BATTERY_SCAN_INTERVAL_SEC: u64 = 5;
+const BATTERY_SCAN_INTERVAL_SEC: u64 = 30;
 
 #[allow(dead_code)]
 pub struct BatteryMonitor {

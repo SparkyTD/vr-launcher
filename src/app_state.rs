@@ -136,7 +136,7 @@ impl AppState {
         let start = Instant::now();
         let (output_device, input_device) = loop {
             tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-            
+
             let output = self.audio_api.get_output_devices().iter()
                 .find(|d| backend.is_matching_audio_device(d))
                 .cloned();
@@ -234,17 +234,23 @@ impl AppState {
 
         Ok(())
     }
-    
-    pub fn shutdown(&mut self) -> anyhow::Result<()> {
+
+    pub async fn shutdown_async(&mut self) -> anyhow::Result<()> {
         if let Some(mut active_backend) = self.active_backend.take() {
             active_backend.stop()?;
         }
+
         if let Some(mut log_session) = self.log_session.take() {
             log_session.shutdown()?;
         }
+
         if let Some(_) = &self.active_game_session {
             self.kill_active_game()?;
         }
+        
+        let device_manager = self.device_manager.lock().await;
+        device_manager.disconnect_tcpip()?;
+
         Ok(())
     }
 }

@@ -1,12 +1,12 @@
-use crate::{get_asset, BundledContent};
 use axum::body::Body;
 use axum::http::{StatusCode, Uri};
 use axum::response::{IntoResponse, Response};
+use crate::{get_asset, BundledContent};
 
 pub async fn get_frontend_asset(uri: Uri) -> impl IntoResponse {
     let path = uri.path();
 
-    let asset: Option<&BundledContent> = match path.trim_start_matches("/") {
+    let asset: Option<BundledContent> = match path.trim_start_matches("/") {
         "/" | "" => get_asset("index.html"),
         path => get_asset(&path),
     };
