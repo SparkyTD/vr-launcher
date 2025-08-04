@@ -163,13 +163,6 @@ impl AppState {
 
         self.active_backend.replace(backend);
 
-        // TODO: Start the overlay
-        if start_info.was_restarted {
-            //let backend_log_channel = self.log_session.as_mut().unwrap()
-            //             .create_channel("overlay")?;
-            //self.overlay_manager.start(backend_log_channel)?;
-        }
-
         // Launch the game
         let game_log_channel = self.log_session.as_mut().unwrap()
             .create_channel("game")?;
@@ -191,6 +184,13 @@ impl AppState {
                 .as_secs(),
             vr_device_serial: start_info.vr_device_serial,
         });
+
+        // Start the overlay
+        if start_info.was_restarted {
+            let backend_log_channel = self.log_session.as_mut().unwrap()
+                .create_channel("overlay")?;
+            self.overlay_manager.start(backend_log_channel)?;
+        }
 
         let message = format!("active:{}", serde_json::to_string(self.active_game_session.as_ref().unwrap())?).into();
         _ = self.sock_tx.send(message);

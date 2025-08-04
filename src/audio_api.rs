@@ -86,14 +86,14 @@ impl PipeWireManager {
                         let change_tx = change_tx.clone();
                         let listener = metadata.add_listener_local()
                             .property(move |_subject, key, _type, value| {
-                                if value.is_none() {
+                                if value.is_none_or(|v| v == "-1") {
                                     return 0;
                                 }
 
                                 let mut audio_state = audio_state.lock().unwrap();
 
-                                let device_name: serde_json::Value = serde_json::from_str(value.unwrap()).unwrap();
-                                let device_name = device_name.get("name").unwrap().as_str().unwrap();
+                                let device_info: serde_json::Value = serde_json::from_str(value.unwrap()).unwrap();
+                                let device_name = device_info.get("name").unwrap().as_str().unwrap();
 
                                 if let Some("default.audio.sink") = key {
                                     audio_state.output_devices.iter_mut().for_each(|(_, device)| { device.is_default = false });

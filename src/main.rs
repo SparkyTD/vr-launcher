@@ -49,6 +49,8 @@ pub struct GameSession {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    println!("Launcher Process ID: {}", std::process::id());
+    
     let steam_api = SteamInterface::new();
     let launcher = Arc::new(CompatLauncher::new());
 

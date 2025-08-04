@@ -2,6 +2,5 @@
 - [ ] Import VR games from Steam library
 - [x] Battery charge graph
 - [x] Button to reload backend
-- [ ] Allow toggling the overlay
 - [ ] Volume / mute controls on the audio dropdown
 - [x] Handle 500 error message on the client side
