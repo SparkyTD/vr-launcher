@@ -8,6 +8,10 @@ use std::time::SystemTime;
 use std::{fs, thread};
 use tokio::io::AsyncBufReadExt;
 
+pub trait LogHandler: Send + Sync {
+    fn handle_message(&self, message: String, log_type: LogType);
+}
+
 pub struct LogChannel {
     pub(crate) name: String,
     pub(crate) file_path: PathBuf,
@@ -18,6 +22,7 @@ pub struct LogChannel {
     stderr_logger_handle_tokio: Option<tokio::task::JoinHandle<()>>,
     stdout_lines: Vec<String>,
     stderr_lines: Vec<String>,
+    log_handler: Option<Box<dyn LogHandler>>,
 }
 
 impl LogChannel {
@@ -38,6 +43,7 @@ impl LogChannel {
             stderr_logger_handle_tokio: None,
             stdout_lines: Vec::new(),
             stderr_lines: Vec::new(),
+            log_handler: None,
         })
     }
 
@@ -45,6 +51,9 @@ impl LogChannel {
         let now = SystemTime::now();
         let datetime: DateTime<Utc> = now.into();
         let timestamp = datetime.format("%Y-%m-%d %H:%M:%S");
+        if let Some(log_handler) = self.log_handler.as_mut() {
+            log_handler.handle_message(message.into(), log_type.clone());
+        }
         let log_type = match log_type {
             LogType::StdOut => {
                 if self.stdout_lines.len() > 5000 {
@@ -121,6 +130,10 @@ impl LogChannel {
             });
             logger_lock.stderr_logger_handle_tokio.replace(stderr_handle);
         }
+    }
+    
+    pub fn set_log_handler(&mut self, log_handler: Box<dyn LogHandler>) {
+        self.log_handler.replace(log_handler);
     }
 
     pub fn shutdown(&mut self) -> anyhow::Result<()> {

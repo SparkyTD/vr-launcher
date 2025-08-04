@@ -81,7 +81,7 @@ impl AppState {
                     app_folder: command.working_dir.clone().into(),
                     working_directory: command.working_dir.clone().into(),
                     executable: command.executable.clone().into(),
-                    arguments: Some(command.arguments.join(" ")),
+                    arguments: command.arguments,
                 }
             }
             (None, None) => return Err(anyhow::anyhow!("Not enough information to launch the game!")),
@@ -101,6 +101,10 @@ impl AppState {
         self.start_log_session()?;
 
         // Set up backend
+        if let Some(active_backend) = self.active_backend.as_mut() {
+            active_backend.stop()?;
+        }
+
         let mut backend: Box<dyn VRBackend + Send> = match game.vr_backend.as_str() {
             "wivrn" => {
                 self.backend_type = BackendType::WiVRn;
@@ -145,14 +149,17 @@ impl AppState {
                 .cloned();
 
             if start.elapsed().as_secs() > 3 && output.is_none() && input.is_none() {
-                return Err(anyhow::anyhow!("Couldn't find the virtual audio devices for this backend!"));
+                eprintln!("Couldn't find the virtual audio devices for this backend!");
+                break (None, None);
             } else if output.is_some() && input.is_some() {
                 break (output, input);
             }
         };
 
-        self.audio_api.set_default_output_device(output_device.as_ref().unwrap());
-        self.audio_api.set_default_input_device(input_device.as_ref().unwrap());
+        if let (Some(output_device), Some(input_device)) = (output_device, input_device) {
+            self.audio_api.set_default_output_device(&output_device);
+            self.audio_api.set_default_input_device(&input_device);
+        }
 
         self.active_backend.replace(backend);
 
@@ -173,6 +180,8 @@ impl AppState {
             self.sock_tx.clone(),
             game_log_channel,
         )?;
+        
+        println!("Started main game process. PID: {}", process_handle.get_pid());
 
         self.active_game_session.replace(GameSession {
             game,
@@ -217,6 +226,10 @@ impl AppState {
         _ = self.active_game_session.take();
         _ = self.sock_tx.send("inactive".into());
         self.overlay_manager.stop()?;
+
+        if let Some(active_backend) = self.active_backend.as_mut() {
+            active_backend.stop()?;
+        }
 
         Ok(())
     }

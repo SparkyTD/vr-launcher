@@ -31,17 +31,20 @@ impl LaunchModifier for SteamLaunchModifier {
         command.env("SteamGameId", &assigned_id);
         command.env("SteamOverlayGameId", &assigned_id);
 
-        // Steam User
+        // Steam Basic
         command.env("SteamUser", get_user_name()?);
+        command.env("SteamEnv", "1");
 
         // Steam Compat
         let steam_home = steamlocate::SteamDir::locate()?;
         command.env("STEAM_COMPAT_APP_ID", app.steam_id.to_string());
         command.env("STEAM_COMPAT_CLIENT_INSTALL_PATH", steam_home.path());
-        command.env("STEAM_COMPAT_DATA_PATH", steam_home.path().join(COMPATDATA).join(assigned_id.to_string()));
+        command.env("STEAM_COMPAT_DATA_PATH", steam_home.path().join(COMPATDATA));
         command.env("STEAM_COMPAT_FLAGS", "search-cwd"); // only present on Steam games
         command.env("STEAM_COMPAT_LIBRARY_PATHS", steam_home.path().join(STEAMAPPS));
         command.env("STEAM_COMPAT_INSTALL_PATH", &app.app_folder);
+        command.env("PWD", &app.app_folder);
+        command.current_dir(&app.app_folder);
 
         // Fossilize, Shaders and Drivers
         command.env("AMD_VK_PIPELINE_CACHE_FILENAME", "steamapp_shader_cache");

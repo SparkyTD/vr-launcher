@@ -34,3 +34,4 @@ tar = "0.4.44"
 libc = "0.2.172"
 udev = { version = "0.9.3", features = ["sync", "send"] }
 async-trait = "0.1.88"
+discord-rich-presence = "0.2.5"

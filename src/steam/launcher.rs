@@ -26,6 +26,10 @@ impl ProcessHandle {
     pub fn get_process_token(&self) -> &Uuid {
         &self.process_token
     }
+    
+    pub fn get_pid(&self) -> u32 {
+        self.pid
+    }
 
     #[allow(dead_code)]
     #[cfg(debug_assertions)]
@@ -60,6 +64,7 @@ impl CompatLauncher {
         process.arg(compat_version.executable_path.to_str().unwrap());
         process.arg("run");
         process.arg(&app.executable);
+        process.args(&app.arguments);
         process.current_dir(&app.working_directory);
 
         let process_token = Uuid::new_v4();

@@ -10,7 +10,7 @@ pub struct SteamApp {
     pub title: String,
     pub app_folder: PathBuf,
     pub executable: String,
-    pub arguments: Option<String>,
+    pub arguments: Vec<String>,
     pub working_directory: PathBuf,
 }
 
@@ -69,6 +69,10 @@ impl SteamInterface {
                 let working_dir = launch_config["workingdir"].as_string();
                 let executable = launch_config["executable"].as_string();
                 let arguments = launch_config["arguments"].as_string();
+                let arguments = match arguments {
+                    None => vec![],
+                    Some(args) => args.split(' ').into_iter().map(|s| s.to_string()).collect(),
+                };
 
                 if executable.is_none() {
                     continue;
@@ -91,7 +95,7 @@ impl SteamInterface {
                     is_vr_app: is_vr,
                     title: app.name.unwrap(),
                     executable: executable.clone(),
-                    arguments: arguments.cloned(),
+                    arguments,
                     app_folder: app_install_dir,
                     working_directory: working_dir,
                 })

@@ -15,11 +15,11 @@ async fn sock_state(socket: WebSocket, state: AppStateWrapper) {
         let state = state.lock().await;
         let result = (state.sock_tx.subscribe(), state.socket_stop_tx.subscribe());
         drop(state);
-        
+
         result
     };
 
-    let (mut sender, _) = socket.split();
+    let (mut sender, mut receiver) = socket.split();
 
     let send_task = tokio::spawn(async move {
         loop {
@@ -27,6 +27,13 @@ async fn sock_state(socket: WebSocket, state: AppStateWrapper) {
                 _ = stop_rx.recv() => {
                     println!("A socket handler thread has received an interrupt signal");
                     break;
+                }
+                message = receiver.next() => {
+                    if let Some(Ok(Message::Ping(ping))) = message {
+                        _ = sender.send(Message::Pong(ping)).await;
+                    } else if message.is_none_or(|m| m.is_err()) {
+                        return
+                    }
                 }
                 message_result = data_rx.recv() => {
                     match message_result {
