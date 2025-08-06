@@ -4,8 +4,16 @@ use pipewire::metadata::{Metadata, MetadataListener};
 use pipewire::types::ObjectType;
 use serde_json::json;
 use std::collections::{HashMap, HashSet};
+use std::io;
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
+use pipewire::node::{Node, NodeListener};
+use pipewire::spa::{param::ParamType, pod};
+use pipewire::spa::pod::deserialize::PodDeserializer;
+use pipewire::spa::pod::{Pod, Property, Value, ValueArray};
+use pipewire::spa::pod::serialize::PodSerializer;
+use pipewire::spa::sys::{SPA_PROP_channelVolumes, SPA_PROP_mute};
+use pipewire::spa::utils::SpaTypes;
 use serde::{Deserialize, Serialize};
 use tokio::sync::broadcast;
 use tokio::sync::broadcast::Sender;
@@ -14,6 +22,7 @@ use tokio::sync::broadcast::Sender;
 pub enum DeviceChangeEvent {
     DefaultInputChanged(AudioDevice),
     DefaultOutputChanged(AudioDevice),
+    VolumeMuteChanged(AudioDevice),
 }
 
 #[allow(dead_code)]
@@ -32,6 +41,8 @@ pub struct AudioState {
 
     defaults_metadata: Option<SendBox<Metadata>>,
     metadata_listener: Option<SendBox<MetadataListener>>,
+    node_listeners: HashMap<u32, SendBox<NodeListener>>,
+    node_proxies: HashMap<u32, SendBox<Node>>,
 }
 
 #[allow(dead_code)]
@@ -48,6 +59,8 @@ impl PipeWireManager {
             default_output_device: None,
             defaults_metadata: None,
             metadata_listener: None,
+            node_listeners: HashMap::new(),
+            node_proxies: HashMap::new(),
         }));
 
         let change_tx_clone = change_tx.clone();
@@ -65,6 +78,48 @@ impl PipeWireManager {
             join_handle,
             change_tx,
         }
+    }
+
+    fn deserialize_pod_value(pod: &[u8]) -> Option<Value> {
+        let deserializer = PodDeserializer::deserialize_from::<Value>(pod);
+        if let Ok((_, Value::Object(obj))) = deserializer {
+            Some(Value::Object(obj))
+        } else {
+            None
+        }
+    }
+
+    fn parse_volume_from_pod(pod: &Pod) -> Option<(f32, bool, Vec<u8>)> {
+        if let Some(Value::Object(obj)) = Self::deserialize_pod_value(pod.as_bytes()) {
+            let mut volume: Option<f32> = None;
+            let mut muted: Option<bool> = None;
+
+            for property in &obj.properties {
+                #[allow(non_upper_case_globals)]
+                match property.key {
+                    SPA_PROP_channelVolumes => {
+                        if let Value::ValueArray(ValueArray::Float(values)) = &property.value {
+                            let mut max_vol = 0.0f32;
+                            for val in values {
+                                max_vol = max_vol.max(*val);
+                            }
+                            volume = Some(max_vol);
+                        }
+                    }
+                    SPA_PROP_mute => {
+                        if let Value::Bool(v) = property.value {
+                            muted = Some(v)
+                        }
+                    }
+                    _ => {}
+                }
+            }
+
+            if let (Some(volume), Some(muted)) = (volume, muted) {
+                return Some((volume, muted, pod.as_bytes().to_vec()));
+            }
+        }
+        None
     }
 
     fn run_pipewire_thread(audio_state: Arc<Mutex<AudioState>>, change_tx: Sender<DeviceChangeEvent>) -> anyhow::Result<()> {
@@ -122,14 +177,47 @@ impl PipeWireManager {
                         audio_state.metadata_listener.replace(SendBox(listener));
                     }
                 } else if global.type_ == ObjectType::Node && global.props.is_some_and(|p| p.get("media.class").is_some_and(|c| c == "Audio/Source" || c == "Audio/Sink")) {
+                    let audio_state_clone = audio_state.clone();
                     let mut audio_state = audio_state.lock().unwrap();
                     let class = global.props.unwrap().get("media.class").unwrap();
                     let description = global.props.unwrap().get("node.description").unwrap().to_string();
                     let name = global.props.unwrap().get("node.name").unwrap().to_string();
                     match class {
-                        "Audio/Source" => { audio_state.input_devices.insert(global.id, AudioDevice { id: global.id, name, description, is_default: false }); }
-                        "Audio/Sink" => { audio_state.output_devices.insert(global.id, AudioDevice { id: global.id, name, description, is_default: false }); }
+                        "Audio/Source" => { audio_state.input_devices.insert(global.id, AudioDevice { id: global.id, name, description, is_default: false, volume: 100, is_muted: false, pod_bytes: None }); }
+                        "Audio/Sink" => { audio_state.output_devices.insert(global.id, AudioDevice { id: global.id, name, description, is_default: false, volume: 100, is_muted: false, pod_bytes: None }); }
                         _ => {}
+                    }
+
+                    let registry = core.get_registry().unwrap();
+                    if let Ok(node) = registry.bind::<Node, _>(global) {
+                        let device_id = global.id;
+                        let change_tx = change_tx.clone();
+                        let listener = node
+                            .add_listener_local()
+                            .param(move |_seq, param_type, _index, _next, param| {
+                                if param_type != ParamType::Props || param.is_none() {
+                                    return;
+                                }
+
+                                let param = param.unwrap();
+                                if let Some((volume, is_muted, pod_bytes)) = Self::parse_volume_from_pod(&param) {
+                                    let mut audio_state = audio_state_clone.lock().unwrap();
+                                    let device_opt = match audio_state.input_devices.get_mut(&device_id) {
+                                        Some(device) => Some(device),
+                                        None => audio_state.output_devices.get_mut(&device_id),
+                                    };
+                                    if let Some(device) = device_opt {
+                                        device.is_muted = is_muted;
+                                        device.volume = (volume.powf(1f32 / 3f32) * 100f32) as u8;
+                                        device.pod_bytes = Some(pod_bytes);
+                                        let _ = change_tx.send(DeviceChangeEvent::VolumeMuteChanged(device.clone()));
+                                    }
+                                }
+                            })
+                            .register();
+                        node.subscribe_params(&[ParamType::Props]);
+                        audio_state.node_listeners.insert(device_id, SendBox(listener));
+                        audio_state.node_proxies.insert(device_id, SendBox(node));
                     }
                 }
             })
@@ -184,7 +272,56 @@ impl PipeWireManager {
             metadata.0.set_property(0, "default.audio.sink", Some("Spa:String:JSON"), Some(&value));
         }
     }
-    
+
+    pub fn set_device_volume(&self, device: &AudioDevice, volume: u8, muted: bool) {
+        let audio_state = self.audio_state.lock().unwrap();
+        let volume = volume.min(100) as f32 / 100f32;
+
+        if let Some(proxy) = audio_state.node_proxies.get(&device.id) {
+            let volume_float = volume.powf(3f32);
+            let device = audio_state.input_devices.get(&device.id)
+                .or_else(|| audio_state.output_devices.get(&device.id))
+                .expect("Could not find the specified device");
+
+            if let Some(pod_data) = &device.pod_bytes {
+                let pod_data = Self::deserialize_pod_value(pod_data);
+                if let Some(Value::Object(mut obj)) = pod_data {
+                    let mut channel_count: Option<usize> = None;
+                    for property in &mut obj.properties {
+                        #[allow(non_upper_case_globals)]
+                        match property.key {
+                            SPA_PROP_channelVolumes => {
+                                if let Value::ValueArray(ValueArray::Float(values)) = &property.value {
+                                    channel_count.replace(values.len());
+                                }
+                            }
+                            SPA_PROP_mute => {
+                                property.value = Value::Bool(muted);
+                            }
+                            _ => {}
+                        }
+                    }
+
+                    if let Some(channel_count) = channel_count {
+                        let channel_volumes = vec![volume_float; channel_count];
+                        let pod_data = Value::Object(pod::object! {
+                            SpaTypes::ObjectParamProps,
+                            ParamType::Props,
+                            Property::new(SPA_PROP_channelVolumes, Value::ValueArray(ValueArray::Float(channel_volumes))),
+                            Property::new(SPA_PROP_mute, Value::Bool(muted)),
+                        });
+
+                        if let Ok((cursor, _)) = PodSerializer::serialize(io::Cursor::new(Vec::new()), &pod_data) {
+                            let pod_bytes = cursor.into_inner();
+                            let pod = Pod::from_bytes(pod_bytes.as_ref());
+                            proxy.0.set_param(ParamType::Props, 0, pod.unwrap());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     pub fn subscribe_to_changes(&self) -> broadcast::Receiver<DeviceChangeEvent> {
         self.change_tx.subscribe()
     }
@@ -197,6 +334,11 @@ pub struct AudioDevice {
     pub name: String,
     pub description: String,
     pub is_default: bool,
+
+    #[serde(skip_serializing)]
+    pub pod_bytes: Option<Vec<u8>>,
+    pub volume: u8,
+    pub is_muted: bool,
 }
 
 struct SendBox<T> (T);

@@ -58,6 +58,19 @@ export class Api {
         });
     }
 
+    public static async SetAudioDeviceVolumeAsync(device: AudioDevice, volume: number, muted: boolean): Promise<void> {
+        await fetch(Api.GetApiUrl(`/audio/device/${device.id}/volume`), {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+                volume: volume,
+                muted: muted,
+            })
+        });
+    }
+
     public static async SetDefaultAudioOutputAsync(device: AudioDevice): Promise<void> {
         await fetch(Api.GetApiUrl(`/audio/outputs/${device.id}/default`), {
             method: "POST",

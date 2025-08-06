@@ -29,6 +29,7 @@ use std::sync::Arc;
 use tokio::signal;
 use steam::steam_interface::SteamInterface;
 use tokio::sync::{broadcast, Mutex};
+use tower_http::cors::CorsLayer;
 use ts_rs::TS;
 
 include!(concat!(env!("OUT_DIR"), "/bundled_assets.rs"));
@@ -76,6 +77,8 @@ async fn main() -> anyhow::Result<()> {
                                     format!("default_input_changed:{}", serde_json::to_string(&device).unwrap()),
                                 DeviceChangeEvent::DefaultOutputChanged(device) =>
                                     format!("default_output_changed:{}", serde_json::to_string(&device).unwrap()),
+                                DeviceChangeEvent::VolumeMuteChanged(device) =>
+                                    format!("volume_mute_changed:{}", serde_json::to_string(&device).unwrap()),
                             };
                             let _ = ws_tx_clone.send(message);
                         }
@@ -124,6 +127,7 @@ async fn main() -> anyhow::Result<()> {
         .route("/api/games/reload_backend", post(routes::game_state::reload_backend))
         .route("/api/audio/{endpoint}", get(routes::audio::get_audio_endpoints))
         .route("/api/audio/{endpoint}/{endpoint_id}/default", post(routes::audio::set_default_audio_endpoint))
+        .route("/api/audio/device/{endpoint_id}/volume", post(routes::audio::set_audio_endpoint_volume))
         .route("/api/sock", get(routes::sock::sock_state_handler))
         .route("/api/device/battery", get(routes::device::get_battery_status))
         .route("/api/debug/agent", get(routes::debug::get_user_agent))
@@ -133,6 +137,7 @@ async fn main() -> anyhow::Result<()> {
             header::ACCESS_CONTROL_ALLOW_ORIGIN,
             HeaderValue::from_static("*"),
         ))
+        .layer(CorsLayer::very_permissive())
         .with_state(app_state);
 
     let shutdown_signal = async {

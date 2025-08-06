@@ -1,9 +1,10 @@
 import {ChevronDown, MicIcon, Volume2Icon} from "lucide-solid";
-import {createSignal, createResource, Show, For} from "solid-js";
+import {createResource, createSignal, For, Show} from "solid-js";
 import {Api} from "../api.ts";
 // @ts-ignore
 import {clickOutside} from "./utils/clickOutside.ts";
 import {useWebSocket} from "../socket.ts";
+import {Observable} from "../utils/observable.ts";
 
 export default function AudioSelector() {
     const [isOpen, setIsOpen] = createSignal(false)
@@ -18,12 +19,16 @@ export default function AudioSelector() {
         };
     });
 
+    const deviceInfoObservable = new Observable<AudioDevice | null>(null);
+
     useWebSocket(data => {
         let parts = (data as string).split(':');
         let command = parts[0];
 
         if (command == "default_output_changed" || command == "default_input_changed") {
             refetch()
+        } else if (command == "volume_mute_changed") {
+            deviceInfoObservable.value = JSON.parse(parts.slice(1).join(":")) as AudioDevice;
         }
     });
 
@@ -45,8 +50,8 @@ export default function AudioSelector() {
 
         <Show when={isOpen()}>
             <div class="absolute right-0 mt-2 w-80 rounded-xl backdrop-blur-xl bg-zinc-900/5 border border-white/10 shadow-xl z-50 p-4">
-                <EndpointSelector name="Speaker" type="output" forceRefetch={refetch}/>
-                <EndpointSelector name="Microphone" type="input" forceRefetch={refetch}/>
+                <EndpointSelector name="Speakers" type="output" forceRefetch={refetch} deviceVolumeObservable={deviceInfoObservable}/>
+                <EndpointSelector name="Microphones" type="input" forceRefetch={refetch} deviceVolumeObservable={deviceInfoObservable}/>
             </div>
         </Show>
     </div>
@@ -56,6 +61,7 @@ type AudioSelectorProps = {
     name: string
     type: 'input' | 'output',
     forceRefetch: () => void,
+    deviceVolumeObservable: Observable<AudioDevice | null>
 }
 
 export type AudioDevice = {
@@ -63,9 +69,11 @@ export type AudioDevice = {
     name: string,
     description: string,
     is_default: boolean,
+    volume: number,
+    is_muted: boolean,
 }
 
-function EndpointSelector({name, type, forceRefetch}: AudioSelectorProps) {
+function EndpointSelector({name, type, forceRefetch, deviceVolumeObservable}: AudioSelectorProps) {
     const [isLoading, setIsLoading] = createSignal(false);
 
     const [devices, {refetch}] = createResource(async () => {
@@ -74,7 +82,7 @@ function EndpointSelector({name, type, forceRefetch}: AudioSelectorProps) {
             : await Api.ListAudioOutputsAsync();
     });
 
-    return <div class="relative">
+    return <div class={type == "input" ? "relative mt-4" : "relative"}>
         <Show when={isLoading()}>
             <div class="absolute inset-0 bg-black/10 z-10 rounded-lg"></div>
         </Show>
@@ -82,7 +90,15 @@ function EndpointSelector({name, type, forceRefetch}: AudioSelectorProps) {
         <h3 class="text-sm font-medium text-zinc-300 mb-2">{name}</h3>
         <div class="space-y-1">
             <For each={devices()}>{device => {
-                return <div class={`flex items-center gap-2 p-2 rounded-lg cursor-pointer ${device.is_default ? "bg-white/10" : "hover:bg-white/5"}`}
+                const [currentVolume, setCurrentVolume] = createSignal(device.volume);
+                deviceVolumeObservable.subscribe((info) => {
+                    if(info?.id != device.id) {
+                        return;
+                    }
+                    device.volume = info.volume;
+                    setCurrentVolume(device.volume);
+                })
+                return <div class={`${device.is_default ? "flex flex-col" : "flex items-center"} gap-2 p-2 rounded-lg cursor-pointer ${device.is_default ? "bg-white/10" : "hover:bg-white/5"}`}
                             onClick={async () => {
                                 setIsLoading(true);
                                 try {
@@ -96,11 +112,38 @@ function EndpointSelector({name, type, forceRefetch}: AudioSelectorProps) {
                                 }
                                 setIsLoading(false);
                             }}>
-                    {type == 'output' && <Volume2Icon class={`w-5 h-5 me-2 flex-shrink-0 ${device.is_default ? "text-blue-400" : "text-zinc-400"}`}/>}
-                    {type == 'input' && <MicIcon class={`w-5 h-5 me-2 flex-shrink-0 ${device.is_default ? "text-blue-400" : "text-zinc-400"}`}/>}
-                    <span class={`text-sm flex-1 whitespace-nowrap ${device.is_default ? "text-white" : "text-zinc-300"}`} title={device.description}>
-                        {truncateMiddle(device.description)}
-                    </span>
+                    <div class="flex items-center gap-2">
+                        {type == 'output' && <Volume2Icon class={`w-5 h-5 me-2 flex-shrink-0 ${device.is_default ? "text-blue-400" : "text-zinc-400"}`}/>}
+                        {type == 'input' && <MicIcon class={`w-5 h-5 me-2 flex-shrink-0 ${device.is_default ? "text-blue-400" : "text-zinc-400"}`}/>}
+                        <span class={`text-sm flex-1 whitespace-nowrap ${device.is_default ? "text-white" : "text-zinc-300"}`} title={device.description}>
+                            {truncateMiddle(device.description)}
+                        </span>
+                    </div>
+                    <Show when={device.is_default}>
+                        <div class="w-full mt-2">
+                            <input
+                                type="range"
+                                min="0"
+                                max="100"
+                                value={currentVolume()}
+                                class="w-full h-2 appearance-none cursor-pointer rounded-full bg-white/10 backdrop-blur-sm border border-white/5
+                                       [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4
+                                       [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-blue-400 [&::-webkit-slider-thumb]:border-2
+                                       [&::-webkit-slider-thumb]:border-white/20 [&::-webkit-slider-thumb]:shadow-lg [&::-webkit-slider-thumb]:cursor-pointer
+                                       [&::-webkit-slider-thumb]:hover:bg-blue-300 [&::-webkit-slider-thumb]:transition-colors
+                                       [&::-moz-range-thumb]:appearance-none [&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:h-4
+                                       [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-blue-400 [&::-moz-range-thumb]:border-2
+                                       [&::-moz-range-thumb]:border-white/20 [&::-moz-range-thumb]:shadow-lg [&::-moz-range-thumb]:cursor-pointer
+                                       [&::-moz-range-thumb]:hover:bg-blue-300 [&::-moz-range-thumb]:border-none
+                                       focus:outline-none focus:ring-2 focus:ring-blue-400/50 focus:ring-offset-2 focus:ring-offset-transparent"
+                                style={`background: linear-gradient(to right, rgb(96 165 250) 0%, rgb(96 165 250) ${currentVolume()}%, rgba(255,255,255,0.1) ${currentVolume()}%, rgba(255,255,255,0.1) 100%)`}
+                                onInput={async (e) => {
+                                    const volume = parseInt(e.currentTarget.value);
+                                    await Api.SetAudioDeviceVolumeAsync(device, volume, false);
+                                }}
+                            />
+                        </div>
+                    </Show>
                 </div>
             }}</For>
         </div>

@@ -7,7 +7,7 @@ edition = "2024"
 tokio = { version = "1.45.1", features = ["full", "tracing"] }
 anyhow = "1.0.98"
 dotenvy = "0.15.7"
-tower-http = { version = "0.6.6", features = ["set-header"] }
+tower-http = { version = "0.6.6", features = ["set-header", "cors"] }
 axum = { version = "0.8.4", features = ["ws", "macros"] }
 axum-extra = { version = "0.10.1", features = ["typed-header"] }
 pipewire = "0.8.0"

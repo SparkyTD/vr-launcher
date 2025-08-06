@@ -2,6 +2,7 @@ use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::Json;
 use axum::response::IntoResponse;
+use serde::Deserialize;
 use crate::app_state::AppStateWrapper;
 
 pub async fn get_audio_endpoints(
@@ -42,4 +43,27 @@ pub async fn set_default_audio_endpoint(
         }
         None => StatusCode::NOT_FOUND.into_response(),
     }
+}
+
+pub async fn set_audio_endpoint_volume(
+    State(app_state): State<AppStateWrapper>,
+    Path(endpoint_id): Path<u32>,
+    Json(payload): Json<AudioVolumeControl>
+) -> impl IntoResponse {
+    let app_state = app_state.lock().await;
+    let mut all_devices = app_state.audio_api.get_input_devices().clone();
+    all_devices.extend(app_state.audio_api.get_output_devices());
+
+    let device = all_devices.iter().find(|d| d.id == endpoint_id);
+    if let Some(device) = device {
+        app_state.audio_api.set_device_volume(device, payload.volume, payload.muted);
+    }
+
+    StatusCode::OK.into_response()
+}
+
+#[derive(Deserialize, Debug)]
+pub struct AudioVolumeControl {
+    volume: u8,
+    muted: bool,
 }
