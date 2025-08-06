@@ -1,3 +1,4 @@
+use std::ffi::OsStr;
 use crate::adb::device_manager::DeviceManager;
 use crate::backends::{BackendStartInfo, VRBackend};
 use crate::logging::log_channel::{LogChannel, LogHandler, LogType};
@@ -5,6 +6,7 @@ use crate::TokioMutex;
 use async_trait::async_trait;
 use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
+use sysinfo::System;
 use crate::audio_api::AudioDevice;
 
 pub struct WiVRnBackend {
@@ -18,6 +20,14 @@ impl VRBackend for WiVRnBackend {
         let mut needs_new_server_process = false;
         if self.server_process.as_mut().is_none_or(|s| s.try_wait().is_ok_and(|p| p.is_some())) {
             needs_new_server_process = true;
+
+            // Kill any existing processes
+            let mut sys = System::new_all();
+            sys.refresh_all();
+            for process in sys.processes_by_name(OsStr::new("wivrn-server")) {
+                println!("Process {}: {:?}", process.pid(), process.name());
+                process.kill_and_wait().map_err(|e| anyhow::anyhow!("{:?}", e))?;
+            }
         }
 
         if needs_new_server_process {
@@ -41,7 +51,7 @@ impl VRBackend for WiVRnBackend {
             }
 
             self.server_process.replace(server_process);
-            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            tokio::time::sleep(std::time::Duration::from_secs(2)).await;
             match self.server_process.as_mut().unwrap().try_wait()? {
                 Some(status) => {
                     let log_channel = backend_log_channel.lock()
