@@ -39,7 +39,7 @@ impl LaunchModifier for SteamLaunchModifier {
         let steam_home = steamlocate::SteamDir::locate()?;
         command.env("STEAM_COMPAT_APP_ID", app.steam_id.to_string());
         command.env("STEAM_COMPAT_CLIENT_INSTALL_PATH", steam_home.path());
-        command.env("STEAM_COMPAT_DATA_PATH", steam_home.path().join(COMPATDATA));
+        command.env("STEAM_COMPAT_DATA_PATH", steam_home.path().join(COMPATDATA).join(assigned_id.to_string()));
         command.env("STEAM_COMPAT_FLAGS", "search-cwd"); // only present on Steam games
         command.env("STEAM_COMPAT_LIBRARY_PATHS", steam_home.path().join(STEAMAPPS));
         command.env("STEAM_COMPAT_INSTALL_PATH", &app.app_folder);

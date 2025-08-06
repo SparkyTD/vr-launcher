@@ -159,6 +159,7 @@ impl AppState {
         if let (Some(output_device), Some(input_device)) = (output_device, input_device) {
             self.audio_api.set_default_output_device(&output_device);
             self.audio_api.set_default_input_device(&input_device);
+            println!("Changed default output devices to '{}' / '{}'", output_device.description, input_device.description);
         }
 
         self.active_backend.replace(backend);
