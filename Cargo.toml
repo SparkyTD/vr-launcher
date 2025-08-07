@@ -22,16 +22,11 @@ num_enum = "0.7.3"
 sysinfo = "0.35.2"
 vdf-reader = "0.3.1"
 ts-rs = "11.0.1"
-rusb = "0.9.4"
-adb_client = "2.1.13"
 nix = { version = "0.30.1", features = ["signal", "poll"] }
 uuid = { version = "1.17.0", features = ["v4"] }
 chrono = "0.4.41"
-log = "0.4.27"
-once_cell = "1.21.3"
 flate2 = "1.1.2"
 tar = "0.4.44"
 libc = "0.2.172"
 udev = { version = "0.9.3", features = ["sync", "send"] }
 async-trait = "0.1.88"
-discord-rich-presence = "0.2.5"

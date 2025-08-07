@@ -42,7 +42,7 @@ export default function BatteryIndicator() {
                 })()}
                 <div>
                     <span class="bold">{batteryInfo()!.stats.level}%</span>
-                    {batteryInfo()!.stats.powerSource != 'Unknown' && <span>&nbsp;{batteryInfo()!.stats.powerSource}</span>}
+                    <span>&nbsp;{batteryInfo()!.stats.powerSource}</span>
                 </div>
 
                 {batteryInfo()!.stats.isWeakCharger && <CircleAlertIcon class="text-orange-500 w-5"/>}
