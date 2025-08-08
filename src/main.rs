@@ -26,10 +26,14 @@ use axum::Router;
 use serde::Serialize;
 use std::collections::HashSet;
 use std::sync::Arc;
+use std::thread;
+use image::ImageFormat;
 use steam::steam_interface::SteamInterface;
 use tokio::signal;
 use tokio::sync::{broadcast, Mutex};
 use tower_http::cors::CorsLayer;
+use tray_icon::menu::{MenuEvent, MenuId, MenuItemBuilder};
+use tray_icon::{Icon, TrayIconBuilder};
 use ts_rs::TS;
 
 include!(concat!(env!("OUT_DIR"), "/bundled_assets.rs"));
@@ -51,7 +55,50 @@ pub struct GameSession {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     println!("Launcher Process ID: {}", std::process::id());
-    
+
+    let (shutdown_tx, mut shutdown_rx) = tokio::sync::mpsc::channel::<()>(1);
+    let tray_icon_bytes = include_bytes!("../icon.png");
+    let tray_icon_image = image::ImageReader::with_format(std::io::Cursor::new(tray_icon_bytes), ImageFormat::Png)
+        .decode()?
+        .into_rgba8();
+    let (width, height) = tray_icon_image.dimensions();
+    thread::spawn(move || {
+        use tray_icon::menu::Menu;
+
+        gtk::init().unwrap();
+        let tray_menu = Menu::new();
+        tray_menu.append(&MenuItemBuilder::new()
+            .id(MenuId("exit".into()))
+            .text("Exit")
+            .enabled(true)
+            .build()).unwrap();
+        let _tray_icon = TrayIconBuilder::new()
+            .with_menu(Box::new(tray_menu))
+            .with_icon(Icon::from_rgba(tray_icon_image.into_raw(), width, height).unwrap())
+            .build()
+            .unwrap();
+
+        let menu_channel = MenuEvent::receiver();
+
+        thread::spawn(move || {
+            loop {
+                if let Ok(event) = menu_channel.try_recv() {
+                    match event.id {
+                        MenuId(id) if id == "exit" => {
+                            _ = shutdown_tx.blocking_send(());
+                            break;
+                        }
+                        _ => continue,
+                    }
+                }
+
+                thread::sleep(std::time::Duration::from_millis(100));
+            }
+        });
+
+        gtk::main();
+    });
+
     let steam_api = SteamInterface::new();
     let launcher = Arc::new(CompatLauncher::new());
 
@@ -140,9 +187,15 @@ async fn main() -> anyhow::Result<()> {
         .layer(CorsLayer::very_permissive())
         .with_state(app_state);
 
-    let shutdown_signal = async {
-        signal::ctrl_c().await.expect("Failed to install Ctrl+C handler");
-        println!("Received Ctrl+C signal, shutting down gracefully...");
+    let shutdown_signal = async move {
+        tokio::select! {
+            _ = signal::ctrl_c() => {
+                println!("Received Ctrl+C signal, shutting down gracefully...");
+            }
+            _ = shutdown_rx.recv() => {
+                println!("Shutting down...");
+            }
+        }
     };
 
     let listen_address = "0.0.0.0:3001";
