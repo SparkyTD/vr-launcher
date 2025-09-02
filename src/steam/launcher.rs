@@ -1,8 +1,10 @@
+use std::path::Path;
 use std::process::Stdio;
 use crate::logging::log_channel::LogChannel;
 use crate::steam::launch_modifiers::LaunchModifier;
 use crate::steam::steam_interface::{ProtonVersion, SteamApp};
 use std::sync::{Arc, Mutex};
+use anyhow::bail;
 use tokio::process;
 use tokio::sync::broadcast::Sender;
 use tokio::sync::RwLock;
@@ -53,6 +55,23 @@ impl CompatLauncher {
     }
 
     pub fn launch_app_compat(&self, app: &SteamApp, compat_version: &ProtonVersion, modifiers: Vec<Box<dyn LaunchModifier>>, sock_tx: Sender<String>, logger: Arc<Mutex<LogChannel>>) -> anyhow::Result<ProcessHandle> {
+        // Check if app paths exist
+        if !app.working_directory.exists() {
+            bail!("The specified working directory does not exist.");
+        }
+
+        if !app.app_folder.exists() {
+            bail!("The specified installation directory does not exist.");
+        }
+
+        if !Path::new(&app.executable).exists() {
+            bail!("The specified app executable does not exist.");
+        }
+
+        if !compat_version.executable_path.exists() {
+            bail!("The specified compat tool's path does not exist.");
+        }
+
         let mut process = process::Command::new("python3");
 
         // Process output

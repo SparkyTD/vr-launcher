@@ -19,7 +19,7 @@ impl DeviceManager {
     pub fn new(stop_tx: Sender<()>) -> anyhow::Result<Self> {
         let current_device = Arc::new(TokioMutex::new(Self::find_connected_device()?));
         let mut stop_rx = stop_tx.subscribe();
-        let (force_update_tx, _) = tokio::sync::broadcast::channel(1);
+        let (force_update_tx, _) = broadcast::channel(1);
 
         Ok(Self {
             current_device: current_device.clone(),
@@ -96,7 +96,7 @@ impl DeviceManager {
     pub fn subscribe_to_force_battery_update(&self) -> broadcast::Receiver<()> {
         self.force_update_tx.subscribe()
     }
-    
+
     async fn wait_for_event(socket: &udev::MonitorSocket) -> Result<Option<udev::Event>, Box<dyn std::error::Error + Send + Sync>> {
         use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
         use tokio::io::unix::AsyncFd;

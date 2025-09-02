@@ -3,6 +3,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use num_enum::TryFromPrimitive;
 use udev::Device;
+use crate::adb::wifi_info::WifiInfo;
 
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
@@ -15,6 +16,7 @@ pub struct AdbVrDevice {
     pub usb_serial: String,
     pub dev_path: String,
     pub ip_address: Option<String>,
+    pub wifi_info: Option<WifiInfo>,
 }
 
 impl AdbVrDevice {
@@ -62,6 +64,19 @@ impl AdbVrDevice {
                 .and_then(|line| line.trim().split(' ').nth(1))
                 .and_then(|line| line.split('/').next());
 
+            let wifi_info_output = String::from_utf8(Command::new("adb")
+                .args(&[
+                    "-s", device_serial,
+                    "shell", "dumpsys", "wifi"
+                ])
+                .output()?.stdout)?;
+
+            let wifi_info_output = wifi_info_output
+                .lines()
+                .into_iter()
+                .find(|line| line.starts_with("mWifiInfo "))
+                .unwrap();
+
             Ok(AdbVrDevice {
                 is_usb_connected: Arc::new(AtomicBool::new(true)),
                 dev_type: vendor_id,
@@ -71,6 +86,7 @@ impl AdbVrDevice {
                 usb_serial: device_serial.into(),
                 dev_path: dev_path.into(),
                 ip_address: ip_address.map(|ip| ip.into()),
+                wifi_info: WifiInfo::parse_from(&wifi_info_output),
             })
         } else {
             Err(anyhow::anyhow!("Unable to parse this device as a valid VR device").into())
