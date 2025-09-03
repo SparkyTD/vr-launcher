@@ -23,11 +23,11 @@ use crate::steam::launcher::{CompatLauncher, ProcessHandle};
 use axum::http::{header, HeaderValue};
 use axum::routing::{get, post};
 use axum::Router;
+use image::ImageFormat;
 use serde::Serialize;
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::thread;
-use image::ImageFormat;
 use steam::steam_interface::SteamInterface;
 use tokio::signal;
 use tokio::sync::{broadcast, Mutex};
@@ -103,7 +103,7 @@ async fn main() -> anyhow::Result<()> {
     let launcher = Arc::new(CompatLauncher::new());
 
     let (sock_tx, _) = broadcast::channel::<String>(100);
-    let audio_api = PipeWireManager::new();
+    let audio_api = PipeWireManager::new()?;
     let mut device_changes = audio_api.subscribe_to_changes();
 
     let ws_tx_clone = sock_tx.clone();
@@ -138,7 +138,6 @@ async fn main() -> anyhow::Result<()> {
         }
         println!("  >> [AUDIO_MON] Task exiting");
     });
-
 
     let (socket_stop_tx, _) = broadcast::channel::<()>(1);
     let (bat_mon_stop_tx, _) = broadcast::channel::<()>(1);
