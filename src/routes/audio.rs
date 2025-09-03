@@ -13,12 +13,12 @@ pub async fn get_audio_endpoints(
     let mut devices = match endpoint.as_str() {
         "inputs" => app_state.audio_api.get_input_devices(),
         "outputs" => app_state.audio_api.get_output_devices(),
-        _ => panic!("Bad request"),
+        _ => return StatusCode::BAD_REQUEST.into_response(),
     }.into_iter().collect::<Vec<_>>();
 
     devices.sort_by_key(|d| d.name.clone());
 
-    Json(devices)
+    Json(devices).into_response()
 }
 
 pub async fn set_default_audio_endpoint(
@@ -29,7 +29,7 @@ pub async fn set_default_audio_endpoint(
     let devices = match endpoint.as_str() {
         "inputs" => app_state.audio_api.get_input_devices(),
         "outputs" => app_state.audio_api.get_output_devices(),
-        _ => panic!("Bad request"),
+        _ => return StatusCode::BAD_REQUEST.into_response(),
     };
 
     match devices.iter().find(|d| d.id == endpoint_id) {
@@ -37,7 +37,7 @@ pub async fn set_default_audio_endpoint(
             match endpoint.as_str() {
                 "inputs" => app_state.audio_api.set_default_input_device(device),
                 "outputs" => app_state.audio_api.set_default_output_device(device),
-                _ => panic!("Bad request"),
+                _ => return StatusCode::BAD_REQUEST.into_response(),
             }
             StatusCode::NO_CONTENT.into_response()
         }
