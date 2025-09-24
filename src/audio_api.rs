@@ -5,11 +5,10 @@ use pipewire::node::{Node, NodeListener};
 use pipewire::registry::{Listener, Registry};
 use pipewire::spa::pod::deserialize::PodDeserializer;
 use pipewire::spa::pod::serialize::PodSerializer;
-use pipewire::spa::pod::{Pod, Property, Value, ValueArray};
+use pipewire::spa::pod::{Object, Pod, Value, ValueArray};
 use pipewire::spa::support::system::IoFlags;
 use pipewire::spa::sys::{SPA_PROP_channelVolumes, SPA_PROP_mute};
-use pipewire::spa::utils::SpaTypes;
-use pipewire::spa::{param::ParamType, pod};
+use pipewire::spa::param::ParamType;
 use pipewire::types::ObjectType;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
@@ -77,13 +76,13 @@ impl AudioState {
             if let Some(pod_data) = &device.pod_bytes {
                 let pod_data = PipeWireManager::deserialize_pod_value(pod_data);
                 if let Some(Value::Object(mut obj)) = pod_data {
-                    let mut channel_count: Option<usize> = None;
                     for property in &mut obj.properties {
                         #[allow(non_upper_case_globals)]
                         match property.key {
                             SPA_PROP_channelVolumes => {
                                 if let Value::ValueArray(ValueArray::Float(values)) = &property.value {
-                                    channel_count.replace(values.len());
+                                    let channel_count = values.len();
+                                    property.value = Value::ValueArray(ValueArray::Float(vec![volume_float; channel_count]));
                                 }
                             }
                             SPA_PROP_mute => {
@@ -93,20 +92,11 @@ impl AudioState {
                         }
                     }
 
-                    if let Some(channel_count) = channel_count {
-                        let channel_volumes = vec![volume_float; channel_count];
-                        let pod_data = Value::Object(pod::object! {
-                                                        SpaTypes::ObjectParamProps,
-                                                        ParamType::Props,
-                                                        Property::new(SPA_PROP_channelVolumes, Value::ValueArray(ValueArray::Float(channel_volumes))),
-                                                        Property::new(SPA_PROP_mute, Value::Bool(muted)),
-                                                    });
-
-                        if let Ok((cursor, _)) = PodSerializer::serialize(io::Cursor::new(Vec::new()), &pod_data) {
-                            let pod_bytes = cursor.into_inner();
-                            let pod = Pod::from_bytes(pod_bytes.as_ref());
-                            proxy.0.set_param(ParamType::Props, 0, pod.unwrap());
-                        }
+                    let pod_data = Value::Object(obj);
+                    if let Ok((cursor, _)) = PodSerializer::serialize(io::Cursor::new(Vec::new()), &pod_data) {
+                        let pod_bytes = cursor.into_inner();
+                        let pod = Pod::from_bytes(pod_bytes.as_ref());
+                        proxy.0.set_param(ParamType::Props, 0, pod.unwrap());
                     }
                 }
             }
@@ -198,7 +188,7 @@ impl PipeWireManager {
         }
     }
 
-    fn parse_volume_from_pod(pod: &Pod) -> Option<(f32, bool, Vec<u8>)> {
+    fn parse_volume_from_pod(pod: &Pod) -> Option<(f32, bool, Vec<u8>, Object)> {
         if let Some(Value::Object(obj)) = Self::deserialize_pod_value(pod.as_bytes()) {
             let mut volume: Option<f32> = None;
             let mut muted: Option<bool> = None;
@@ -225,7 +215,7 @@ impl PipeWireManager {
             }
 
             if let (Some(volume), Some(muted)) = (volume, muted) {
-                return Some((volume, muted, pod.as_bytes().to_vec()));
+                return Some((volume, muted, pod.as_bytes().to_vec(), obj));
             }
         }
         None
@@ -309,7 +299,7 @@ impl PipeWireManager {
                                 }
 
                                 let param = param.unwrap();
-                                if let Some((volume, is_muted, pod_bytes)) = Self::parse_volume_from_pod(&param) {
+                                if let Some((volume, is_muted, pod_bytes, _pod_obj)) = Self::parse_volume_from_pod(&param) {
                                     let mut audio_state = audio_state_clone.lock().unwrap();
                                     let device_opt = match audio_state.input_devices.get_mut(&device_id) {
                                         Some(device) => Some(device),
@@ -320,6 +310,11 @@ impl PipeWireManager {
                                         device.volume = (volume.powf(1f32 / 3f32) * 100f32) as u8;
                                         device.pod_bytes = Some(pod_bytes);
                                         let _ = change_tx.send(DeviceChangeEvent::VolumeMuteChanged(device.clone()));
+
+                                        // println!("\n ========== {} ==========", device.description);
+                                        // for property in &_pod_obj.properties {
+                                        //     println!("   - {} => {:?}", _spa_prop_to_string(property.key), property.value);
+                                        // }
                                     }
                                 }
                             })
@@ -432,4 +427,64 @@ struct PipeWireContext {
     context: Context,
     registry: Registry,
     registry_listener: Listener,
+}
+
+fn _spa_prop_to_string(prop: u32) -> String {
+    match prop {
+        0 => "SPA_PROP_START",
+        1 => "SPA_PROP_unknown",
+        256 => "SPA_PROP_START_Device",
+        257 => "SPA_PROP_device",
+        258 => "SPA_PROP_deviceName",
+        259 => "SPA_PROP_deviceFd",
+        260 => "SPA_PROP_card",
+        261 => "SPA_PROP_cardName",
+        262 => "SPA_PROP_minLatency",
+        263 => "SPA_PROP_maxLatency",
+        264 => "SPA_PROP_periods",
+        265 => "SPA_PROP_periodSize",
+        266 => "SPA_PROP_periodEvent",
+        267 => "SPA_PROP_live",
+        268 => "SPA_PROP_rate",
+        269 => "SPA_PROP_quality",
+        270 => "SPA_PROP_bluetoothAudioCodec",
+        271 => "SPA_PROP_bluetoothOffloadActive",
+        65536 => "SPA_PROP_START_Audio",
+        65537 => "SPA_PROP_waveType",
+        65538 => "SPA_PROP_frequency",
+        65539 => "SPA_PROP_volume",
+        65540 => "SPA_PROP_mute",
+        65541 => "SPA_PROP_patternType",
+        65542 => "SPA_PROP_ditherType",
+        65543 => "SPA_PROP_truncate",
+        65544 => "SPA_PROP_channelVolumes",
+        65545 => "SPA_PROP_volumeBase",
+        65546 => "SPA_PROP_volumeStep",
+        65547 => "SPA_PROP_channelMap",
+        65548 => "SPA_PROP_monitorMute",
+        65549 => "SPA_PROP_monitorVolumes",
+        65550 => "SPA_PROP_latencyOffsetNsec",
+        65551 => "SPA_PROP_softMute",
+        65552 => "SPA_PROP_softVolumes",
+        65553 => "SPA_PROP_iec958Codecs",
+        65554 => "SPA_PROP_volumeRampSamples",
+        65555 => "SPA_PROP_volumeRampStepSamples",
+        65556 => "SPA_PROP_volumeRampTime",
+        65557 => "SPA_PROP_volumeRampStepTime",
+        65558 => "SPA_PROP_volumeRampScale",
+        131072 => "SPA_PROP_START_Video",
+        131073 => "SPA_PROP_brightness",
+        131074 => "SPA_PROP_contrast",
+        131075 => "SPA_PROP_saturation",
+        131076 => "SPA_PROP_hue",
+        131077 => "SPA_PROP_gamma",
+        131078 => "SPA_PROP_exposure",
+        131079 => "SPA_PROP_gain",
+        131080 => "SPA_PROP_sharpness",
+        524288 => "SPA_PROP_START_Other",
+        524289 => "SPA_PROP_params",
+        16777216 => "SPA_PROP_START_CUSTOM",
+
+        _ => "(unknown)"
+    }.to_string()
 }
