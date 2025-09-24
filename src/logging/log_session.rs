@@ -20,6 +20,10 @@ pub struct LogSession {
 
 impl LogSession {
     pub fn new(logs_dir: PathBuf) -> Self {
+        if !logs_dir.exists() {
+            fs::create_dir_all(&logs_dir).unwrap();
+        }
+        
         Self {
             logs_dir,
             start_time: SystemTime::now(),
