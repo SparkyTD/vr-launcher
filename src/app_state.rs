@@ -240,7 +240,8 @@ impl AppState {
             log_session.shutdown()?;
         }
 
-        let logs_dir = env::current_dir()?
+        let logs_dir = env::current_exe()?
+            .parent().unwrap()
             .join("logs");
         let mut session = LogSession::new(logs_dir);
         session.archive_old_files()?;
