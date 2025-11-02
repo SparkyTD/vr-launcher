@@ -28,7 +28,6 @@ use serde::Serialize;
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::thread;
-use single_instance::SingleInstance;
 use steam::steam_interface::SteamInterface;
 use tokio::signal;
 use tokio::sync::{broadcast, Mutex};
@@ -57,10 +56,10 @@ pub struct GameSession {
 async fn main() -> anyhow::Result<()> {
     println!("Launcher Process ID: {}", std::process::id());
 
-    let instance = SingleInstance::new("vr-launcher-instance")?;
+    /*let instance = SingleInstance::new("vr-launcher-instance")?;
     if !instance.is_single() {
         return Err(anyhow::anyhow!("Another instance of this application is already running"));
-    }
+    }*/
 
     let (shutdown_tx, mut shutdown_rx) = tokio::sync::mpsc::channel::<()>(1);
     let tray_icon_bytes = include_bytes!("../icon.png");

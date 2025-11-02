@@ -64,7 +64,7 @@ impl CompatLauncher {
             bail!("The specified installation directory does not exist.");
         }
 
-        if !Path::new(&app.executable).exists() {
+        if !Path::new(&app.app_folder.join(&app.executable)).exists() {
             bail!("The specified app executable does not exist.");
         }
 

@@ -226,11 +226,12 @@ impl AppState {
     pub fn game_process_died(&mut self) -> anyhow::Result<()> {
         _ = self.active_game_session.take();
         _ = self.sock_tx.send("inactive".into());
-        self.overlay_manager.stop()?;
 
         if let Some(active_backend) = self.active_backend.as_mut() {
             active_backend.stop()?;
         }
+
+        self.overlay_manager.stop()?;
 
         Ok(())
     }
