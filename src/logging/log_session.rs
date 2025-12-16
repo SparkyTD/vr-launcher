@@ -8,14 +8,26 @@ use anyhow::ensure;
 use chrono::{DateTime, Utc};
 use flate2::Compression;
 use flate2::write::GzEncoder;
+use lazy_static::lazy_static;
 use regex::Regex;
 use tar::Builder;
 use crate::logging::log_channel::LogChannel;
+
+lazy_static!{
+    static ref COLOR_LIST: Vec<colored::Color> = vec![
+        colored::Color::Yellow,
+        colored::Color::Green,
+        colored::Color::Cyan,
+        colored::Color::Magenta,
+        colored::Color::Blue,
+    ];
+}
 
 pub struct LogSession {
     logs_dir: PathBuf,
     start_time: SystemTime,
     channels: HashMap<String, Arc<Mutex<LogChannel>>>,
+    last_color_index: usize,
 }
 
 impl LogSession {
@@ -28,6 +40,7 @@ impl LogSession {
             logs_dir,
             start_time: SystemTime::now(),
             channels: HashMap::new(),
+            last_color_index: 0,
         }
     }
 
@@ -35,7 +48,10 @@ impl LogSession {
         ensure!(!name.is_empty(), "Name cannot be empty");
         ensure!(!self.channels.contains_key(name), "A log channel with the name {} already exists", name);
 
-        let channel = Arc::new(Mutex::new(LogChannel::new(name, self.start_time, &self.logs_dir)?));
+        let color = COLOR_LIST[self.last_color_index % COLOR_LIST.len()];
+        self.last_color_index += 1;
+
+        let channel = Arc::new(Mutex::new(LogChannel::new(name, self.start_time, &self.logs_dir, color)?));
         self.channels.insert(name.into(), channel.clone());
 
         Ok(channel)

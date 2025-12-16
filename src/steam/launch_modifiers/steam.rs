@@ -3,7 +3,7 @@ use crate::steam::steam_interface::{ProtonVersion, SteamApp};
 use anyhow::ensure;
 use std::fs;
 use std::hash::{DefaultHasher, Hash, Hasher};
-use tokio::process::Command;
+use tokio::process;
 use vdf_reader::entry::Table;
 
 pub struct SteamLaunchModifier;
@@ -21,7 +21,7 @@ const SHADERCACHE: &str = "steamapps/shadercache";
 const LOGINUSERS: &str = "config/loginusers.vdf";
 
 impl LaunchModifier for SteamLaunchModifier {
-    fn apply(&self, command: &mut Command, app: &SteamApp, compat_version: &ProtonVersion) -> anyhow::Result<()> {
+    fn apply(&self, command: &mut process::Command, app: &SteamApp, compat_version: Option<&ProtonVersion>) -> anyhow::Result<()> {
         // Steam IDs
         let assigned_id = match app.steam_id {
             0 => generate_20_digit_code(&app.executable),
@@ -75,17 +75,21 @@ impl LaunchModifier for SteamLaunchModifier {
         command.env("STEAM_COMPAT_TRANSCODED_MEDIA_PATH", steam_home.path().join(SHADERCACHE).join(assigned_id.to_string()));
         command.env("STEAM_COMPAT_MOUNTS", vec![
             steam_home.path().join(COMMON).join("SteamLinuxRuntime_sniper").to_str().unwrap(),
-        //     steam_home.path().join(COMMON).join("Steamworks Shared").to_str().unwrap(), // TODO: Only for Steam games ???
+            //     steam_home.path().join(COMMON).join("Steamworks Shared").to_str().unwrap(), // TODO: Only for Steam games ???
         ].join(":"));
         command.env("STEAM_COMPAT_PROTON", "1");
-        command.env("STEAM_COMPAT_TOOL_PATHS", vec![
-            compat_version.executable_path.parent().unwrap().to_str().unwrap(),
-            steam_home.path().join(COMMON).join("SteamLinuxRuntime_sniper").to_str().unwrap(),
-        ].join(":"));
+
+        if let Some(compat_version) = compat_version {
+            command.env("STEAM_COMPAT_TOOL_PATHS", vec![
+                compat_version.executable_path.parent().unwrap().to_str().unwrap(),
+                steam_home.path().join(COMMON).join("SteamLinuxRuntime_sniper").to_str().unwrap(),
+            ].join(":"));
+        }
+
         command.env("STEAM_FOSSILIZE_DUMP_PATH_READ_ONLY", "$bucketdir/steam_pipeline_cache.foz;$bucketdir/steamapp_pipeline_cache.foz");
         //command.env("STEAM_RUNTIME_LIBRARY_PATH", todo!("List of Steam's bin library folders"));
         command.env("WINEDLLOVERRIDES", "winhttp=n,b"); // only BSManager does this
-        
+
         fs::create_dir_all(steam_home.path().join(COMPATDATA).join(assigned_id.to_string()))?;
         fs::create_dir_all(steam_home.path().join(SHADERCACHE).join(assigned_id.to_string()).join("fozmediav1"))?;
         fs::create_dir_all(steam_home.path().join(SHADERCACHE).join(assigned_id.to_string()).join("fozpipelinesv6"))?;

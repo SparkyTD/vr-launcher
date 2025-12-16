@@ -11,6 +11,7 @@ pub mod wivrn;
 pub trait VRBackend: Send {
     async fn start_async(&mut self, backend_log_channel: Arc<Mutex<LogChannel>>, device_manager: Arc<TokioMutex<DeviceManager>>) -> anyhow::Result<BackendStartInfo>;
     async fn reconnect_async(&mut self, device_manager: Arc<TokioMutex<DeviceManager>>) -> anyhow::Result<()>;
+    async fn is_ready(&self) -> anyhow::Result<bool>;
     fn stop(&mut self) -> anyhow::Result<()>;
     fn is_matching_audio_device(&self, device: &AudioDevice) -> bool;
 }

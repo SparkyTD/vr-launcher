@@ -2,6 +2,12 @@ use crate::steam::vfd_format::AppInfoDatabase;
 use std::collections::HashSet;
 use std::path::PathBuf;
 
+#[derive(Debug, Clone, Eq, PartialEq)]
+pub enum SteamAppPlatform {
+    Windows,
+    Linux,
+}
+
 #[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct SteamApp {
@@ -12,6 +18,7 @@ pub struct SteamApp {
     pub executable: String,
     pub arguments: Vec<String>,
     pub working_directory: PathBuf,
+    pub platform: SteamAppPlatform,
 }
 
 #[allow(dead_code)]
@@ -22,6 +29,12 @@ pub struct ProtonVersion {
     pub executable_path: PathBuf,
 }
 
+#[derive(Debug)]
+pub struct ProtonLaunchInfo {
+    pub version: ProtonVersion,
+    pub use_pressure_vessel: bool,
+}
+
 pub struct SteamInterface {}
 
 impl SteamInterface {
@@ -29,7 +42,7 @@ impl SteamInterface {
         Self {}
     }
 
-    pub fn get_installed_apps(&self) -> anyhow::Result<Vec<SteamApp>> {
+    pub fn get_installed_apps(&self, platform_hint: Option<SteamAppPlatform>) -> anyhow::Result<Vec<SteamApp>> {
         let steam_dir = steamlocate::SteamDir::locate()?;
 
         let mut found_apps = Vec::new();
@@ -37,9 +50,13 @@ impl SteamInterface {
 
         let app_info = AppInfoDatabase::load_from(steam_dir.path().join("appcache/appinfo.vdf").to_path_buf())?;
         for library in steam_dir.libraries()?.into_iter().filter_map(|l| l.ok()) {
-            //println!("Library at {:?}:", library.path());
+            // println!("Library at {:?}:", library.path());
 
             for app in library.apps().into_iter().filter_map(|l| l.ok()) {
+                if app.app_id == 1435790 {
+                    println!("Found app {}", app.app_id);
+                }
+
                 if seen_steam_ids.contains(&app.app_id) {
                     continue;
                 }
@@ -55,17 +72,29 @@ impl SteamInterface {
                 }
 
                 let launch_options = launch_options.unwrap().values().collect::<Vec<_>>();
-                let launch_config = launch_options
+                let win_launch_config = launch_options
                     .iter()
                     .find(|l| l["config.oslist"]
                         .is_string_and(|s| s.contains("windows"))
                         || l["config.oslist"].is_none());
+                let linux_launch_config = launch_options
+                    .iter()
+                    .find(|l| l["config.oslist"]
+                        .is_string_and(|s| s.contains("linux"))
+                        || l["config.oslist"].is_none());
 
-                if launch_config.is_none() {
+                if win_launch_config.is_none() && linux_launch_config.is_none() {
                     continue;
                 }
 
-                let launch_config = launch_config.unwrap();
+                let launch_config = match (&platform_hint, linux_launch_config, win_launch_config) {
+                    (Some(SteamAppPlatform::Linux), Some(launch_config), _) => launch_config,
+                    (Some(SteamAppPlatform::Windows), _, Some(launch_config)) => launch_config,
+                    (None, Some(launch_config), _) => launch_config,
+                    (None, None, Some(launch_config)) => launch_config,
+                    _ => continue,
+                };
+
                 let working_dir = launch_config["workingdir"].as_string();
                 let executable = launch_config["executable"].as_string();
                 let arguments = launch_config["arguments"].as_string();
@@ -88,7 +117,7 @@ impl SteamInterface {
                     continue;
                 }
 
-                //println!("   - App {}: {:?}", app.app_id, app.name.clone().unwrap());
+                // println!("   - App {}: {:?}", app.app_id, app.name.clone().unwrap());
 
                 found_apps.push(SteamApp {
                     steam_id: app.app_id,
@@ -98,6 +127,10 @@ impl SteamInterface {
                     arguments,
                     app_folder: app_install_dir,
                     working_directory: working_dir,
+                    platform: match linux_launch_config.is_some() {
+                        true => SteamAppPlatform::Linux,
+                        false => SteamAppPlatform::Windows,
+                    }
                 })
             }
         }

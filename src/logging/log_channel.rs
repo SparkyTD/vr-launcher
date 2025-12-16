@@ -6,6 +6,7 @@ use std::process::Child;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 use std::{fs, thread};
+use colored::Colorize;
 use tokio::io::AsyncBufReadExt;
 
 pub trait LogHandler: Send + Sync {
@@ -23,10 +24,11 @@ pub struct LogChannel {
     stdout_lines: Vec<String>,
     stderr_lines: Vec<String>,
     log_handler: Option<Box<dyn LogHandler>>,
+    color: colored::Color,
 }
 
 impl LogChannel {
-    pub fn new(name: &str, time: SystemTime, logs_dir: &PathBuf) -> anyhow::Result<LogChannel> {
+    pub fn new(name: &str, time: SystemTime, logs_dir: &PathBuf, color: colored::Color) -> anyhow::Result<LogChannel> {
         let datetime: DateTime<Utc> = time.into();
         let filename = format!("{}_{}.log", datetime.format("%Y-%m-%d_%H:%M:%S"), name);
 
@@ -44,6 +46,7 @@ impl LogChannel {
             stdout_lines: Vec::new(),
             stderr_lines: Vec::new(),
             log_handler: None,
+            color,
         })
     }
 
@@ -70,7 +73,7 @@ impl LogChannel {
                 "Error"
             },
         };
-        println!("[{}] [{}] [{}] {}", timestamp, self.name, log_type, message);
+        println!("{}", format!("[{}] [{}] {}", timestamp, self.name, message).color(self.color));
         self.log_file.write_all(format!("{}\n", message).as_bytes()).unwrap();
     }
 

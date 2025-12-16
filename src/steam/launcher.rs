@@ -2,7 +2,7 @@ use std::path::Path;
 use std::process::Stdio;
 use crate::logging::log_channel::LogChannel;
 use crate::steam::launch_modifiers::LaunchModifier;
-use crate::steam::steam_interface::{ProtonVersion, SteamApp};
+use crate::steam::steam_interface::{ProtonLaunchInfo, SteamApp};
 use std::sync::{Arc, Mutex};
 use anyhow::bail;
 use tokio::process;
@@ -54,8 +54,14 @@ impl CompatLauncher {
         *app_state_lock = Some(app_state);
     }
 
-    pub fn launch_app_compat(&self, app: &SteamApp, compat_version: &ProtonVersion, modifiers: Vec<Box<dyn LaunchModifier>>, sock_tx: Sender<String>, logger: Arc<Mutex<LogChannel>>) -> anyhow::Result<ProcessHandle> {
-        // Check if app paths exist
+    pub fn launch_app(&self, app: &SteamApp, compat_version: Option<ProtonLaunchInfo>, modifiers: Vec<Box<dyn LaunchModifier>>, sock_tx: Sender<String>, logger: Arc<Mutex<LogChannel>>) -> anyhow::Result<ProcessHandle> {
+        match compat_version {
+            Some(compat_version) => self.launch_app_compat(app, compat_version, modifiers, sock_tx, logger),
+            None => self.launch_app_native(app, modifiers, sock_tx, logger),
+        }
+    }
+
+    fn launch_app_native(&self, app: &SteamApp, modifiers: Vec<Box<dyn LaunchModifier>>, sock_tx: Sender<String>, logger: Arc<Mutex<LogChannel>>) -> anyhow::Result<ProcessHandle> {
         if !app.working_directory.exists() {
             bail!("The specified working directory does not exist.");
         }
@@ -68,29 +74,99 @@ impl CompatLauncher {
             bail!("The specified app executable does not exist.");
         }
 
-        if !compat_version.executable_path.exists() {
-            bail!("The specified compat tool's path does not exist.");
-        }
-
-        let mut process = process::Command::new("python3");
+        let mut process = process::Command::new(app.working_directory.join(&app.executable));
 
         // Process output
         process.stdout(Stdio::piped());
         process.stderr(Stdio::piped());
 
-        // Basic Proton Setup
-        process.env("_", compat_version.executable_path.to_str().unwrap());
-        process.arg(compat_version.executable_path.to_str().unwrap());
+        process.args(&app.arguments);
+        process.current_dir(&app.working_directory);
+
+        let process_token = Uuid::new_v4();
+        process.env("SVRL_TOKEN", process_token.to_string());
+        
+        for modifier in modifiers {
+            modifier.apply(&mut process, app, None)?;
+        }
+
+        let mut child = process.spawn()?;
+        let pid = child.id().unwrap();
+
+        LogChannel::connect_tokio(logger, &mut child);
+
+        let app_state_clone = self.app_state.clone();
+        Ok(ProcessHandle {
+            pid,
+            process_token,
+            wait_handle: Some(tokio::task::spawn(async move {
+                println!("Waiting for child process to exit (id={})", pid);
+                let status = child.wait().await;
+                println!("The child process has exited with status {:?}", status);
+                _ = sock_tx.send("inactive".to_owned());
+                let app_state = app_state_clone.write().await;
+                let app_state = app_state.as_ref().unwrap();
+                let mut app_state = app_state.lock().await;
+                _ = app_state.game_process_died();
+            })),
+        })
+    }
+
+    fn launch_app_compat(&self, app: &SteamApp, compat_version: ProtonLaunchInfo, modifiers: Vec<Box<dyn LaunchModifier>>, sock_tx: Sender<String>, logger: Arc<Mutex<LogChannel>>) -> anyhow::Result<ProcessHandle> {
+        if !app.working_directory.exists() {
+            bail!("The specified working directory does not exist.");
+        }
+
+        if !app.app_folder.exists() {
+            bail!("The specified installation directory does not exist.");
+        }
+
+        if !Path::new(&app.app_folder.join(&app.executable)).exists() {
+            bail!("The specified app executable does not exist.");
+        }
+
+        if !compat_version.version.executable_path.exists() {
+            bail!("The specified compat tool's path does not exist.");
+        }
+
+        let mut process = match compat_version.use_pressure_vessel {
+            true => {
+                let steam_home = steamlocate::SteamDir::locate()?;
+                let mut process = process::Command::new(steam_home.path().join("ubuntu12_32/reaper"));
+
+                process.arg("SteamLaunch");
+                process.arg(format!("AppId={}", app.steam_id));
+                process.arg("--");
+                process.arg(steam_home.path().join("steamapps/common/SteamLinuxRuntime_sniper/_v2-entry-point"));
+                process.arg("--verb=waitforexitandrun");
+                process.arg("--");
+
+                process
+            }
+            false => {
+                process::Command::new("python3")
+            }
+        };
+
+        // Process output
+        process.stdout(Stdio::piped());
+        process.stderr(Stdio::piped());
+
+        process.arg(compat_version.version.executable_path.to_str().unwrap());
         process.arg("run");
         process.arg(&app.executable);
         process.args(&app.arguments);
+
+        // "/run/user/1000/wivrn/comp_ipc"
+
+        process.env("_", compat_version.version.executable_path.to_str().unwrap());
         process.current_dir(&app.working_directory);
 
         let process_token = Uuid::new_v4();
         process.env("SVRL_TOKEN", process_token.to_string());
 
         for modifier in modifiers {
-            modifier.apply(&mut process, app, compat_version)?;
+            modifier.apply(&mut process, app, Some(&compat_version.version))?;
         }
 
         let mut child = process.spawn()?;

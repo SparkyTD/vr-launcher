@@ -1,13 +1,17 @@
-use std::ffi::OsStr;
 use crate::adb::device_manager::DeviceManager;
+use crate::audio_api::AudioDevice;
 use crate::backends::{BackendStartInfo, VRBackend};
 use crate::logging::log_channel::{LogChannel, LogHandler, LogType};
 use crate::TokioMutex;
 use async_trait::async_trait;
+use std::ffi::OsStr;
+use std::path::PathBuf;
 use std::process::{Command, Stdio};
+use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use sysinfo::System;
-use crate::audio_api::AudioDevice;
+
+const WIVRN_SERVER_BINARY: &str = "/opt/github/WiVRn/build-dashboard/server/wivrn-server";
 
 pub struct WiVRnBackend {
     server_process: Option<std::process::Child>,
@@ -25,7 +29,7 @@ impl VRBackend for WiVRnBackend {
             let mut sys = System::new_all();
             sys.refresh_all();
             for process in sys.processes_by_name(OsStr::new("wivrn-server")) {
-                println!("Process {}: {:?}", process.pid(), process.name());
+                println!("Killing existing WiVRn Server process {}: {:?}", process.pid(), process.name());
                 process.kill_and_wait().map_err(|e| anyhow::anyhow!("{:?}", e))?;
             }
         }
@@ -33,7 +37,7 @@ impl VRBackend for WiVRnBackend {
         if needs_new_server_process {
             // Start the WiVRn server
             println!("Starting WiVRn server...");
-            let mut server_process = Command::new("/opt/github/WiVRn/build-dashboard/server/wivrn-server")
+            let mut server_process = Command::new(WIVRN_SERVER_BINARY)
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
                 .spawn()?;
@@ -87,6 +91,13 @@ impl VRBackend for WiVRnBackend {
         }
 
         Self::reconnect_static_async(device_manager).await
+    }
+
+    async fn is_ready(&self) -> anyhow::Result<bool> {
+        let xdg_runtime_dir = std::env::var("XDG_RUNTIME_DIR")?;
+        let path = PathBuf::from_str(&format!("{}/wivrn/comp_ipc", xdg_runtime_dir))?;
+
+        Ok(path.exists())
     }
 
     fn stop(&mut self) -> anyhow::Result<()> {

@@ -11,6 +11,7 @@ mod battery_monitor;
 mod overlay;
 mod logging;
 mod adb;
+mod perf;
 
 use self::models::*;
 use crate::adb::device_manager::DeviceManager;
@@ -55,11 +56,6 @@ pub struct GameSession {
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     println!("Launcher Process ID: {}", std::process::id());
-
-    /*let instance = SingleInstance::new("vr-launcher-instance")?;
-    if !instance.is_single() {
-        return Err(anyhow::anyhow!("Another instance of this application is already running"));
-    }*/
 
     let (shutdown_tx, mut shutdown_rx) = tokio::sync::mpsc::channel::<()>(1);
     let tray_icon_bytes = include_bytes!("../icon.png");

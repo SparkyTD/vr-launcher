@@ -8,6 +8,7 @@ import {GameSession} from "../rust_bindings.ts";
 import {useWebSocket} from "../socket.ts";
 import Modal, {ErrorModalContents} from "../components/Modal.tsx";
 import {v4 as uuidv4} from 'uuid';
+import OfflineOverlay from "../components/OfflineOverlay.tsx";
 
 type AppState = 'grid' | 'playing';
 
@@ -87,6 +88,8 @@ export default function RootView() {
         <Show when={currentState() === 'playing' && selectedGame() && activeSession()}>
             <NowPlaying game={selectedGame()!} onBack={handleBackToGrid} session={activeSession()!}/>
         </Show>
+
+        <OfflineOverlay/>
 
         <Modal contents={errorModelContent()} onClose={() => setErrorModelContent(null)}/>
     </main>;

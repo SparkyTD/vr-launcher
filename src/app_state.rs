@@ -12,7 +12,7 @@ use crate::steam::launch_modifiers::steam::SteamLaunchModifier;
 use crate::steam::launch_modifiers::wivrn::WiVRnLaunchModifier;
 use crate::steam::launch_modifiers::LaunchModifier;
 use crate::steam::launcher::CompatLauncher;
-use crate::steam::steam_interface::{SteamApp, SteamInterface};
+use crate::steam::steam_interface::{ProtonLaunchInfo, SteamApp, SteamAppPlatform, SteamInterface};
 use crate::GameSession;
 use anyhow::ensure;
 use nix::libc::pid_t;
@@ -59,8 +59,13 @@ impl AppState {
             Box::new(steam_modifier),
         ];
 
+        let proton_hint = match game.proton_version {
+            Some(_) => SteamAppPlatform::Windows,
+            None => SteamAppPlatform::Linux,
+        };
+        
         let steam_app = match (&game.steam_app_id, &game.command_line) {
-            (Some(steam_id), None) => self.steam_api.get_installed_apps()?
+            (Some(steam_id), None) => self.steam_api.get_installed_apps(Some(proton_hint))?
                 .into_iter()
                 .find(|app| app.steam_id == *steam_id as u32)
                 .ok_or(anyhow::anyhow!("Could not find Steam app with id {}", steam_id))?,
@@ -71,6 +76,15 @@ impl AppState {
                     let modifier = EnvironmentVariablesModifier::new(command.env_vars);
                     modifiers.push(Box::new(modifier));
                 }
+
+                let steam_app = match steam_id {
+                    Some(steam_id) => Some(self.steam_api.get_installed_apps(Some(proton_hint))?
+                                               .into_iter()
+                                               .find(|app| app.steam_id == *steam_id as u32)
+                                               .ok_or(anyhow::anyhow!("Could not find Steam app with id {}", steam_id))?),
+                    None => None,
+                };
+
                 SteamApp {
                     steam_id: match steam_id {
                         Some(id) => *id as u32,
@@ -78,6 +92,10 @@ impl AppState {
                     },
                     title: game.title.clone(),
                     is_vr_app: true,
+                    platform: match steam_app {
+                        Some(steam_app) => steam_app.platform,
+                        None => SteamAppPlatform::Windows,
+                    },
                     app_folder: command.working_dir.clone().into(),
                     working_directory: command.working_dir.clone().into(),
                     executable: command.executable.clone().into(),
@@ -87,15 +105,17 @@ impl AppState {
             (None, None) => return Err(anyhow::anyhow!("Not enough information to launch the game!")),
         };
 
-        let proton_version = match &game.proton_version {
-            Some(version) => self.steam_api.get_proton_versions()?
+        println!("Launching game: {:#?}", steam_app);
+
+        let compat_version = match &game.proton_version {
+            Some(version) => Some(self.steam_api.get_proton_versions()?
                 .into_iter()
                 .find(|p| p.name == *version)
-                .ok_or(anyhow::anyhow!("Missing proton version: {:?}!", version))?,
-            None => return Err(anyhow::anyhow!("Running games without proton is currently not supported!")),
+                .ok_or(anyhow::anyhow!("Missing proton version: {:?}!", version))?),
+            None if steam_app.platform == SteamAppPlatform::Windows => return Err(anyhow::anyhow!("Running windows games without proton is currently not supported!")),
+            None if steam_app.platform == SteamAppPlatform::Linux => None,
+            None => unreachable!(),
         };
-
-        println!("Launching game: {:#?}", steam_app);
 
         // Create logging session
         self.start_log_session()?;
@@ -135,6 +155,18 @@ impl AppState {
         if let Some(device_ip) = start_info.vr_device_ip {
             self.battery_monitor.set_active_device_ip(device_ip);
         }
+        let mut backend_loaded = false;
+        for _ in 0..=50 {
+            if backend.is_ready().await? {
+                backend_loaded = true;
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+        
+        if !backend_loaded {
+            return Err(anyhow::anyhow!("Could not start the backend."));
+        }
 
         // Wait for virtual audio devices to be registered
         let start = Instant::now();
@@ -165,11 +197,14 @@ impl AppState {
         self.active_backend.replace(backend);
 
         // Launch the game
-        let game_log_channel = self.log_session.as_mut().unwrap()
-            .create_channel("game")?;
-        let process_handle = self.launcher.launch_app_compat(
+        let game_log_channel = self.log_session.as_mut().unwrap().create_channel("game")?;
+        let compat_info = compat_version.map(|v| ProtonLaunchInfo {
+            version: v,
+            use_pressure_vessel: true,
+        });
+        let process_handle = self.launcher.launch_app(
             &steam_app,
-            &proton_version,
+            compat_info,
             modifiers,
             self.sock_tx.clone(),
             game_log_channel,
