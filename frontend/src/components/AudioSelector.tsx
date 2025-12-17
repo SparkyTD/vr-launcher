@@ -49,7 +49,7 @@ export default function AudioSelector() {
         </div>
 
         <Show when={isOpen()}>
-            <div class="absolute right-0 mt-2 w-80 rounded-xl backdrop-blur-xl bg-zinc-900/5 border border-white/10 shadow-xl z-50 p-4">
+            <div class="absolute right-0 mt-2 w-80 max-h-[calc(100vh-5rem)] overflow-y-auto rounded-xl backdrop-blur-xl bg-zinc-900/5 border border-white/10 shadow-xl z-50 p-4">
                 <EndpointSelector name="Speakers" type="output" forceRefetch={refetch} deviceVolumeObservable={deviceInfoObservable}/>
                 <EndpointSelector name="Microphones" type="input" forceRefetch={refetch} deviceVolumeObservable={deviceInfoObservable}/>
             </div>
