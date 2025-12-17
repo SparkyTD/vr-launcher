@@ -15,7 +15,14 @@ impl LaunchModifier for WiVRnLaunchModifier {
         let xdg_runtime_dir = std::env::var("XDG_RUNTIME_DIR")?;
         // command.env("XR_RUNTIME_JSON", "/usr/share/openxr/1/openxr_wivrn.json");
         // command.env("PRESSURE_VESSEL_FILESYSTEMS_RW", "$XDG_RUNTIME_DIR/wivrn/comp_ipc");
-        command.env("PRESSURE_VESSEL_FILESYSTEMS_RW", format!("{}/wivrn/comp_ipc", xdg_runtime_dir));
+        //command.env("PRESSURE_VESSEL_FILESYSTEMS_RW", format!("{}/wivrn/comp_ipc", xdg_runtime_dir));
+        command.env("PRESSURE_VESSEL_IMPORT_OPENXR_1_RUNTIMES", "1");
+        command.env("PRESSURE_VESSEL_FILESYSTEMS_RW", vec![
+            format!("{}/wivrn_comp_ipc", xdg_runtime_dir),
+            format!("{}/wivrn/comp_ipc", xdg_runtime_dir),
+            format!("{}/monado_comp_ipc", xdg_runtime_dir),
+        ].join(":"));
+
         // /run/user/1000/wivrn/comp_ipc
 
         Ok(())

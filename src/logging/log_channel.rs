@@ -57,7 +57,7 @@ impl LogChannel {
         if let Some(log_handler) = self.log_handler.as_mut() {
             log_handler.handle_message(message.into(), log_type.clone());
         }
-        let log_type = match log_type {
+        let _log_type = match log_type {
             LogType::StdOut => {
                 if self.stdout_lines.len() > 5000 {
                     self.stdout_lines.clear();

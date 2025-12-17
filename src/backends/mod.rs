@@ -16,6 +16,7 @@ pub trait VRBackend: Send {
     fn is_matching_audio_device(&self, device: &AudioDevice) -> bool;
 }
 
+#[allow(dead_code)]
 pub struct BackendStartInfo {
     pub vr_device_serial: String,
     pub vr_device_ip: Option<String>,

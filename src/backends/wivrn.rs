@@ -11,7 +11,8 @@ use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use sysinfo::System;
 
-const WIVRN_SERVER_BINARY: &str = "/opt/github/WiVRn/build-dashboard/server/wivrn-server";
+// const WIVRN_SERVER_BINARY: &str = "/opt/github/WiVRn/build-dashboard/server/wivrn-server";
+const WIVRN_SERVER_BINARY: &str = "/home/sparky/.local/share/envision/prefixes/076a4450-a365-4fd0-b9df-1e8672792c8f/bin/wivrn-server";
 
 pub struct WiVRnBackend {
     server_process: Option<std::process::Child>,
@@ -38,6 +39,8 @@ impl VRBackend for WiVRnBackend {
             // Start the WiVRn server
             println!("Starting WiVRn server...");
             let mut server_process = Command::new(WIVRN_SERVER_BINARY)
+                // .arg("--no-instructions")
+                // .arg("--no-manage-active-runtime")
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
                 .spawn()?;

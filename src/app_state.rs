@@ -77,13 +77,13 @@ impl AppState {
                     modifiers.push(Box::new(modifier));
                 }
 
-                let steam_app = match steam_id {
+                /*let steam_app = match steam_id {
                     Some(steam_id) => Some(self.steam_api.get_installed_apps(Some(proton_hint))?
                                                .into_iter()
                                                .find(|app| app.steam_id == *steam_id as u32)
                                                .ok_or(anyhow::anyhow!("Could not find Steam app with id {}", steam_id))?),
                     None => None,
-                };
+                };*/
 
                 SteamApp {
                     steam_id: match steam_id {
@@ -92,10 +92,7 @@ impl AppState {
                     },
                     title: game.title.clone(),
                     is_vr_app: true,
-                    platform: match steam_app {
-                        Some(steam_app) => steam_app.platform,
-                        None => SteamAppPlatform::Windows,
-                    },
+                    platform: SteamAppPlatform::Windows,
                     app_folder: command.working_dir.clone().into(),
                     working_directory: command.working_dir.clone().into(),
                     executable: command.executable.clone().into(),
@@ -200,7 +197,7 @@ impl AppState {
         let game_log_channel = self.log_session.as_mut().unwrap().create_channel("game")?;
         let compat_info = compat_version.map(|v| ProtonLaunchInfo {
             version: v,
-            use_pressure_vessel: true,
+            use_pressure_vessel: game.pressure_vessel,
         });
         let process_handle = self.launcher.launch_app(
             &steam_app,

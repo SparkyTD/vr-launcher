@@ -15,6 +15,8 @@ pub struct Game {
     #[serde(skip_serializing)]
     pub cover: Option<Vec<u8>>,
     pub vr_backend: String,
+    pub vr_backend_args: String,
+    pub pressure_vessel: bool,
     pub steam_app_id: Option<i64>,
     pub proton_version: Option<String>,
     pub command_line: Option<String>,
