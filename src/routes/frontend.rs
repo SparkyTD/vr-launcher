@@ -8,6 +8,7 @@ pub async fn get_frontend_asset(uri: Uri) -> impl IntoResponse {
 
     let asset: Option<BundledContent> = match path.trim_start_matches("/") {
         "/" | "" => get_asset("index.html"),
+        "favicon.ico" => get_favicon(),
         path => get_asset(&path),
     };
 
@@ -24,4 +25,12 @@ pub async fn get_frontend_asset(uri: Uri) -> impl IntoResponse {
             response
         }
     }
+}
+
+fn get_favicon() -> Option<BundledContent> {
+    let tray_icon_bytes = include_bytes!("../../icon.png");
+    Some(BundledContent {
+        data: tray_icon_bytes.into(),
+        mime_type: "image/png".into(),
+    })
 }
