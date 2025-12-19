@@ -14,6 +14,7 @@ It does this by automatically provisioning the VR environment, launches WiVRn an
 
 ## Features
 - Launch any supported VR game. For now, each game must be manually entered into the database.
+- Use any available version of Proton to launch Windows games
 - Adjust system audio settings (PipeWire only!)
 - Monitor HMD stats like battery level and charging state
 - Launch games using WiVRn as a backend
