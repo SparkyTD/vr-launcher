@@ -1,4 +1,3 @@
-pub mod wivrn;
 pub mod steam;
 pub mod env_vars;
 

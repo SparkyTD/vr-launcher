@@ -25,7 +25,9 @@ impl WlxOverlayManager {
         let mut overlay_process = Command::new(WLX_OVERLAY_BINARY)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            .args(&["--openxr", "--show", "--replace"])
+            .arg("--replace")
+            .arg("--openxr")
+            // .arg("--show")
             .spawn()?;
         LogChannel::connect_std(logger, &mut overlay_process);
         self.overlay_process.replace(overlay_process);

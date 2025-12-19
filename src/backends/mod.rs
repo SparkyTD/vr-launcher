@@ -3,9 +3,11 @@ use async_trait::async_trait;
 use crate::adb::device_manager::DeviceManager;
 use crate::audio_api::AudioDevice;
 use crate::logging::log_channel::LogChannel;
+use crate::steam::launch_modifiers::LaunchModifier;
 use crate::TokioMutex;
 
 pub mod wivrn;
+pub mod envision;
 
 #[async_trait]
 pub trait VRBackend: Send {
@@ -14,6 +16,7 @@ pub trait VRBackend: Send {
     async fn is_ready(&self) -> anyhow::Result<bool>;
     fn stop(&mut self) -> anyhow::Result<()>;
     fn is_matching_audio_device(&self, device: &AudioDevice) -> bool;
+    fn add_modifiers(&self, list: &mut Vec<Box<dyn LaunchModifier>>) -> anyhow::Result<()>;
 }
 
 #[allow(dead_code)]
@@ -28,5 +31,6 @@ pub struct BackendStartInfo {
 pub enum BackendType {
     Unknown,
     WiVRn,
+    Envision,
     ALVR,
 }

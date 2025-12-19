@@ -43,10 +43,13 @@ pub async fn launch_game_async(
                         .body(Body::empty())
                         .unwrap()
                 }
-                Err(error) => Response::builder()
-                    .status(StatusCode::INTERNAL_SERVER_ERROR)
-                    .body(Body::from(error.to_string()))
-                    .unwrap(),
+                Err(error) => {
+                    println!("{:?}", error);
+                    Response::builder()
+                        .status(StatusCode::INTERNAL_SERVER_ERROR)
+                        .body(Body::from(error.to_string()))
+                        .unwrap()
+                },
             }
         }
         None => StatusCode::NOT_FOUND.into_response(),
@@ -107,7 +110,7 @@ pub async fn reload_backend(State(app_state): State<AppStateWrapper>) -> impl In
     let device_manager = app_state.device_manager.clone();
 
     match &app_state.backend_type {
-        BackendType::WiVRn => {
+        BackendType::WiVRn | BackendType::Envision => {
             match app_state.active_backend.as_mut() {
                 Some(backend) => {
                     match backend.reconnect_async(device_manager).await {

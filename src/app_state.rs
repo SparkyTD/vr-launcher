@@ -1,6 +1,7 @@
 use crate::adb::device_manager::DeviceManager;
 use crate::audio_api::PipeWireManager;
-use crate::backends::wivrn::WiVRnBackend;
+use crate::backends::envision::envision_backend::EnvisionBackend;
+use crate::backends::wivrn::wivrn_backend::WiVRnBackend;
 use crate::backends::{BackendType, VRBackend};
 use crate::battery_monitor::BatteryMonitor;
 use crate::command_parser::parse_linux_command;
@@ -9,7 +10,6 @@ use crate::models::Game;
 use crate::overlay::WlxOverlayManager;
 use crate::steam::launch_modifiers::env_vars::EnvironmentVariablesModifier;
 use crate::steam::launch_modifiers::steam::SteamLaunchModifier;
-use crate::steam::launch_modifiers::wivrn::WiVRnLaunchModifier;
 use crate::steam::launch_modifiers::LaunchModifier;
 use crate::steam::launcher::CompatLauncher;
 use crate::steam::steam_interface::{ProtonLaunchInfo, SteamApp, SteamAppPlatform, SteamInterface};
@@ -48,15 +48,8 @@ impl AppState {
             return Err(anyhow::anyhow!("Another active game session is already running"));
         }
 
-        let vr_backend_modifier = match game.vr_backend.to_lowercase().as_str() {
-            "wivrn" => WiVRnLaunchModifier::new(),
-            _ => return Err(anyhow::anyhow!("This VR backend is currently not supported!")),
-        };
-        let steam_modifier = SteamLaunchModifier::new();
-
         let mut modifiers: Vec<Box<dyn LaunchModifier>> = vec![
-            Box::new(vr_backend_modifier),
-            Box::new(steam_modifier),
+            Box::new(SteamLaunchModifier::new()),
         ];
 
         let proton_hint = match game.proton_version {
@@ -122,13 +115,18 @@ impl AppState {
             active_backend.stop()?;
         }
 
-        let mut backend: Box<dyn VRBackend + Send> = match game.vr_backend.as_str() {
+        let mut backend: Box<dyn VRBackend + Send> = match game.vr_backend.to_lowercase().as_str() {
             "wivrn" => {
                 self.backend_type = BackendType::WiVRn;
-                Box::new(WiVRnBackend::new())
+                Box::new(WiVRnBackend::new(game.vr_backend_args.clone().try_into().ok())?)
+            }
+            "envision" => {
+                self.backend_type = BackendType::Envision;
+                Box::new(EnvisionBackend::new(game.vr_backend_args.clone())?)
             }
             _ => return Err(anyhow::anyhow!("This VR backend is currently not supported!")),
         };
+        backend.add_modifiers(&mut modifiers)?;
 
         // Check if headset is currently mounted
         {

@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=Sparky's VR Launcher
+Comment=Launch VR games using a browser based launcher
+Icon=/opt/vr-launcher/icon.png
+Path=/opt/vr-launcher/target/release/
+Exec=/opt/vr-launcher/target/release/vr-launcher
+Terminal=false
+NoDisplay=false
+Type=Application
+Categories=Graphics;
+StartupNotify=true

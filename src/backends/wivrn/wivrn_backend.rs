@@ -1,7 +1,8 @@
 use crate::adb::device_manager::DeviceManager;
 use crate::audio_api::AudioDevice;
 use crate::backends::{BackendStartInfo, VRBackend};
-use crate::logging::log_channel::{LogChannel, LogHandler, LogType};
+use crate::logging::log_channel::LogChannel;
+use crate::steam::launch_modifiers::LaunchModifier;
 use crate::TokioMutex;
 use async_trait::async_trait;
 use std::ffi::OsStr;
@@ -9,12 +10,13 @@ use std::path::PathBuf;
 use std::process::{Command, Stdio};
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
+use anyhow::bail;
 use sysinfo::System;
-
-// const WIVRN_SERVER_BINARY: &str = "/opt/github/WiVRn/build-dashboard/server/wivrn-server";
-const WIVRN_SERVER_BINARY: &str = "/home/sparky/.local/share/envision/prefixes/076a4450-a365-4fd0-b9df-1e8672792c8f/bin/wivrn-server";
+use crate::backends::wivrn::wivrn_launch_modifier::WiVRnLaunchModifier;
+use crate::backends::wivrn::wivrn_log_handler::WiVRnLogHandler;
 
 pub struct WiVRnBackend {
+    server_binary_path: PathBuf,
     server_process: Option<std::process::Child>,
     pub logger: Option<Arc<Mutex<LogChannel>>>,
 }
@@ -31,16 +33,20 @@ impl VRBackend for WiVRnBackend {
             sys.refresh_all();
             for process in sys.processes_by_name(OsStr::new("wivrn-server")) {
                 println!("Killing existing WiVRn Server process {}: {:?}", process.pid(), process.name());
-                process.kill_and_wait().map_err(|e| anyhow::anyhow!("{:?}", e))?;
+                match process.kill_and_wait() {
+                    Ok(_) => (),
+                    Err(e) => println!("Failed to kill existing WiVRn Server process: {:?}", e),
+                }
             }
         }
 
         if needs_new_server_process {
             // Start the WiVRn server
-            println!("Starting WiVRn server...");
-            let mut server_process = Command::new(WIVRN_SERVER_BINARY)
+            println!("Starting WiVRn server [{}]...", self.server_binary_path.display());
+            let mut server_process = Command::new(self.server_binary_path.as_os_str())
                 // .arg("--no-instructions")
                 // .arg("--no-manage-active-runtime")
+                .arg("--early-active-runtime")
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped())
                 .spawn()?;
@@ -114,17 +120,25 @@ impl VRBackend for WiVRnBackend {
     fn is_matching_audio_device(&self, device: &AudioDevice) -> bool {
         device.description.to_lowercase().contains("wivrn")
     }
+
+    fn add_modifiers(&self, list: &mut Vec<Box<dyn LaunchModifier>>) -> anyhow::Result<()> {
+        let manifest_path = Self::locate_wivrn_manifest(self.server_binary_path.clone())?;
+        list.insert(0, Box::new(WiVRnLaunchModifier::new(manifest_path)));
+
+        Ok(())
+    }
 }
 
 impl WiVRnBackend {
-    pub fn new() -> WiVRnBackend {
-        WiVRnBackend {
+    pub fn new(server_binary: Option<PathBuf>) -> anyhow::Result<WiVRnBackend> {
+        Ok(WiVRnBackend {
+            server_binary_path: Self::locate_server_binary_path(server_binary)?,
             server_process: None,
             logger: None,
-        }
+        })
     }
 
-    async fn reconnect_static_async(device_manager: Arc<TokioMutex<DeviceManager>>) -> anyhow::Result<()> {
+    pub async fn reconnect_static_async(device_manager: Arc<TokioMutex<DeviceManager>>) -> anyhow::Result<()> {
         // Forward socket connection
         println!("Forwarding socket connection...");
         let device_manager = device_manager.lock().await;
@@ -143,22 +157,48 @@ impl WiVRnBackend {
 
         Ok(())
     }
-}
 
-struct WiVRnLogHandler {
-    device_manager: Arc<TokioMutex<DeviceManager>>,
-}
-
-#[async_trait::async_trait]
-impl LogHandler for WiVRnLogHandler {
-    fn handle_message(&self, message: String, _log_type: LogType) {
-        if message.contains("Exception in network thread: Socket shutdown") {
-            let device_manager = self.device_manager.clone();
-            tokio::spawn(async move {
-                println!("WiVRn server exited unexpectedly, attempting to reconnect in 3 seconds...");
-                tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-                WiVRnBackend::reconnect_static_async(device_manager).await
-            });
+    fn locate_wivrn_manifest(server_path: PathBuf) -> anyhow::Result<PathBuf> {
+        // Development build
+        let manifest_path = server_path
+            .parent().unwrap()
+            .parent().unwrap()
+            .join("openxr_wivrn-dev.json");
+        if manifest_path.exists() {
+            return Ok(manifest_path)
         }
+
+        // Envision build
+        let manifest_path = server_path
+            .parent().unwrap()
+            .parent().unwrap()
+            .join("share/openxr/1/openxr_wivrn.json");
+        if manifest_path.exists() {
+            return Ok(manifest_path)
+        }
+
+        // Default system install
+        let manifest_path = PathBuf::from_str("/usr/share/openxr/1/openxr_wivrn.json")?;
+        if manifest_path.exists() {
+            return Ok(manifest_path)
+        }
+
+        bail!("WiVRn manifest file not found")
+    }
+
+    fn locate_server_binary_path(server_binary: Option<PathBuf>) -> anyhow::Result<PathBuf> {
+        // Check if the path has been explicitly specified
+        if let Some(server_binary) = server_binary {
+            if server_binary.exists() && server_binary.is_file() {
+                return Ok(server_binary)
+            }
+        }
+
+        // Otherwise, try to evaluate the path of the "wivrn-server" command
+        if let Ok(path) = which::which("wivrn-server") {
+            return Ok(path);
+        }
+
+        bail!("The wivrn server binary was not found")
     }
 }
