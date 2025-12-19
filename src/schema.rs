@@ -10,7 +10,6 @@ diesel::table! {
         pressure_vessel -> Bool,
         steam_app_id -> Nullable<BigInt>,
         command_line -> Nullable<Text>,
-        total_playtime_sec -> Integer,
         proton_version -> Nullable<Text>,
     }
 }

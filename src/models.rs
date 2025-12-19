@@ -20,7 +20,6 @@ pub struct Game {
     pub steam_app_id: Option<i64>,
     pub proton_version: Option<String>,
     pub command_line: Option<String>,
-    pub total_playtime_sec: i32,
 }
 
 pub fn establish_connection() -> SqliteConnection {

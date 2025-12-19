@@ -9,7 +9,6 @@ CREATE TABLE games
     pressure_vessel    INTEGER NOT NULL,
     steam_app_id       BIGINT,
     command_line       TEXT,
-    total_playtime_sec INTEGER NOT NULL,
     proton_version     TEXT
 );
 

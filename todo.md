@@ -1,4 +1,3 @@
-- [ ] Track total play time
 - [ ] Import VR games from Steam library
 - [x] Battery charge graph
 - [x] Button to reload backend
