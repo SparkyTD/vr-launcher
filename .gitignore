@@ -1,1 +1,3 @@
 /target
+Query*.sql
+data_source_mapping.xml
