@@ -7,17 +7,21 @@ use crate::TokioMutex;
 use async_trait::async_trait;
 use std::ffi::OsStr;
 use std::path::PathBuf;
-use std::process::{Command, Stdio};
+use std::process::Stdio;
+use tokio::process::{Command};
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use anyhow::bail;
-use sysinfo::System;
+use sysinfo::{Pid, System};
+use tokio::task::JoinHandle;
 use crate::backends::wivrn::wivrn_launch_modifier::WiVRnLaunchModifier;
 use crate::backends::wivrn::wivrn_log_handler::WiVRnLogHandler;
 
 pub struct WiVRnBackend {
     server_binary_path: PathBuf,
-    server_process: Option<std::process::Child>,
+    //server_process: Option<std::process::Child>,
+    server_pid: Option<u32>,
+    server_wait_handle: Option<JoinHandle<()>>,
     pub logger: Option<Arc<Mutex<LogChannel>>>,
 }
 
@@ -25,12 +29,12 @@ pub struct WiVRnBackend {
 impl VRBackend for WiVRnBackend {
     async fn start_async(&mut self, backend_log_channel: Arc<Mutex<LogChannel>>, device_manager: Arc<TokioMutex<DeviceManager>>) -> anyhow::Result<BackendStartInfo> {
         let mut needs_new_server_process = false;
-        if self.server_process.as_mut().is_none_or(|s| s.try_wait().is_ok_and(|p| p.is_some())) {
+        let mut sys = System::new_all();
+        sys.refresh_all();
+        if self.server_pid.as_mut().is_none_or(|pid| sys.process(Pid::from_u32(*pid)).unwrap().exists()) {
             needs_new_server_process = true;
 
             // Kill any existing processes
-            let mut sys = System::new_all();
-            sys.refresh_all();
             for process in sys.processes_by_name(OsStr::new("wivrn-server")) {
                 println!("Killing existing WiVRn Server process {}: {:?}", process.pid(), process.name());
                 match process.kill_and_wait() {
@@ -52,7 +56,7 @@ impl VRBackend for WiVRnBackend {
                 .spawn()?;
 
             self.logger.replace(backend_log_channel.clone());
-            LogChannel::connect_std(backend_log_channel.clone(), &mut server_process);
+            LogChannel::connect_tokio(backend_log_channel.clone(), &mut server_process);
 
             {
                 let mut backend_log_channel = backend_log_channel.lock()
@@ -63,12 +67,12 @@ impl VRBackend for WiVRnBackend {
                 drop(backend_log_channel);
             }
 
-            self.server_process.replace(server_process);
+            let wivrn_pid = server_process.id().unwrap();
             tokio::time::sleep(std::time::Duration::from_secs(2)).await;
-            match self.server_process.as_mut().unwrap().try_wait()? {
+            match server_process.try_wait()? {
                 Some(status) => {
                     let log_channel = backend_log_channel.lock()
-                        .map_err(|e| anyhow::anyhow!("Failed to lock wiVRn log channel: {}", e))?;
+                        .map_err(|e| anyhow::anyhow!("Failed to lock WiVRn log channel: {}", e))?;
                     let last_error_line = log_channel.get_stderr_lines().last();
                     return Err(anyhow::anyhow!("WiVRn server exited unexpectedly with status {}: {:?}",
                         status,
@@ -77,7 +81,14 @@ impl VRBackend for WiVRnBackend {
                 }
                 None => {}
             }
-            println!("Started WiVRn server");
+            println!("Started WiVRn server process. PID: {}", wivrn_pid);
+
+            self.server_pid.replace(wivrn_pid);
+            self.server_wait_handle.replace(tokio::task::spawn(async move {
+                println!("Waiting for WiVRn process to exit (id={})", wivrn_pid);
+                let status = server_process.wait().await;
+                println!("The WiVRn process has exited with status {:?}", status);
+            }));
         }
 
         // Find the serial of the connected Quest 2 device
@@ -95,7 +106,8 @@ impl VRBackend for WiVRnBackend {
     }
 
     async fn reconnect_async(&mut self, device_manager: Arc<TokioMutex<DeviceManager>>) -> anyhow::Result<()> {
-        if self.server_process.is_none() {
+        if self.server_pid.is_none() {
+            println!("WiVRn server PID is None, will not reconnect");
             return Ok(());
         }
 
@@ -110,8 +122,13 @@ impl VRBackend for WiVRnBackend {
     }
 
     fn stop(&mut self) -> anyhow::Result<()> {
-        if let Some(mut server_process) = self.server_process.take() {
-            server_process.kill()?;
+        if let Some(server_process) = self.server_pid.take() {
+            let mut sys = System::new_all();
+            sys.refresh_all();
+            let process = sys.process(Pid::from_u32(server_process));
+            if let Some(process) = process {
+                process.kill_with(sysinfo::Signal::Term);
+            }
         }
 
         Ok(())
@@ -133,7 +150,8 @@ impl WiVRnBackend {
     pub fn new(server_binary: Option<PathBuf>) -> anyhow::Result<WiVRnBackend> {
         Ok(WiVRnBackend {
             server_binary_path: Self::locate_server_binary_path(server_binary)?,
-            server_process: None,
+            server_pid: None,
+            server_wait_handle: None,
             logger: None,
         })
     }

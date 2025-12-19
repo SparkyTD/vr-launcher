@@ -179,7 +179,7 @@ impl CompatLauncher {
             pid,
             process_token,
             wait_handle: Some(tokio::task::spawn(async move {
-                println!("Waiting for child process to exit (id={})", pid);
+                println!("Waiting for game process to exit (id={})", pid);
                 let status = child.wait().await;
                 println!("The child process has exited with status {:?}", status);
                 _ = sock_tx.send("inactive".to_owned());

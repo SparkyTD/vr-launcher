@@ -1,5 +1,8 @@
 use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex};
+use nix::sys::signal;
+use nix::sys::signal::Signal;
+use nix::unistd::Pid;
 use crate::logging::log_channel::LogChannel;
 
 const WLX_OVERLAY_BINARY: &str = "wlx-overlay-s";
@@ -30,6 +33,7 @@ impl WlxOverlayManager {
             // .arg("--show")
             .spawn()?;
         LogChannel::connect_std(logger, &mut overlay_process);
+        let overlay_pid = overlay_process.id();
         self.overlay_process.replace(overlay_process);
 
         std::thread::sleep(std::time::Duration::from_millis(500));
@@ -39,14 +43,14 @@ impl WlxOverlayManager {
             }
             None => {}
         }
-        println!("Started the wlx-overlay-s process");
+        println!("Started the wlx-overlay-s process. PID: {}", overlay_pid);
 
         Ok(())
     }
     
     pub fn stop(&mut self) -> anyhow::Result<()> {
         if let Some(mut process) = self.overlay_process.take() {
-            process.kill()?;
+            signal::kill(Pid::from_raw(process.id() as i32), Some(Signal::SIGTERM))?;
             process.wait()?;
             println!("Stopped wlx-overlay-s");
         }
