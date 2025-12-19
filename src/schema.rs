@@ -11,5 +11,6 @@ diesel::table! {
         steam_app_id -> Nullable<BigInt>,
         command_line -> Nullable<Text>,
         proton_version -> Nullable<Text>,
+        use_overlay -> Bool,
     }
 }

@@ -191,6 +191,13 @@ impl AppState {
 
         self.active_backend.replace(backend);
 
+        // Start the overlay
+        if start_info.was_restarted && game.use_overlay {
+            let backend_log_channel = self.log_session.as_mut().unwrap()
+                .create_channel("overlay")?;
+            self.overlay_manager.start(backend_log_channel)?;
+        }
+
         // Launch the game
         let game_log_channel = self.log_session.as_mut().unwrap().create_channel("game")?;
         let compat_info = compat_version.map(|v| ProtonLaunchInfo {
@@ -206,7 +213,6 @@ impl AppState {
         )?;
         
         println!("Started main game process. PID: {}", process_handle.get_pid());
-
         self.active_game_session.replace(GameSession {
             game,
             process_handle,
@@ -215,13 +221,6 @@ impl AppState {
                 .as_secs(),
             vr_device_serial: start_info.vr_device_serial,
         });
-
-        // Start the overlay
-        if start_info.was_restarted {
-            let backend_log_channel = self.log_session.as_mut().unwrap()
-                .create_channel("overlay")?;
-            self.overlay_manager.start(backend_log_channel)?;
-        }
 
         let message = format!("active:{}", serde_json::to_string(self.active_game_session.as_ref().unwrap())?).into();
         _ = self.sock_tx.send(message);
@@ -245,7 +244,7 @@ impl AppState {
             if let Some(process_token) = environ.get("SVRL_TOKEN") {
                 if *process_token == active_session.process_handle.get_process_token().to_string() {
                     let pid = nix::unistd::Pid::from_raw(pid.as_u32() as pid_t);
-                    _ = nix::sys::signal::kill(pid, Some(nix::sys::signal::Signal::SIGKILL));
+                    _ = nix::sys::signal::kill(pid, Some(nix::sys::signal::Signal::SIGTERM));
                 }
             }
         }
